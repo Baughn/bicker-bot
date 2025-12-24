@@ -10,9 +10,16 @@ from typing import Any
 import anthropic
 from google import genai
 from google.genai import types
+from pydantic import RootModel
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 from bicker_bot.memory import BotIdentity
+
+
+class ResponseMessages(RootModel[list[str]]):
+    """List of response messages for JSON schema."""
+
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +260,7 @@ or for no response: []"""
                     temperature=0.8,  # Slightly more creative for Merry
                     max_output_tokens=8192,
                     response_mime_type="application/json",
-                    response_schema=list[str],
+                    response_json_schema=ResponseMessages.model_json_schema(),
                     thinking_config=types.ThinkingConfig(
                         thinkingLevel=types.ThinkingLevel.LOW,
                     ),

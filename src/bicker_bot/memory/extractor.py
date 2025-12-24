@@ -1,13 +1,12 @@
 """Memory extraction from conversations using Gemini Flash."""
 
-import json
 import logging
 from dataclasses import dataclass
 from typing import Literal
 
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 from bicker_bot.memory.store import Memory, MemoryStore, MemoryType
@@ -20,6 +19,12 @@ class MemoryExtraction(BaseModel):
     user: str | None = None
     type: Literal["fact", "opinion", "interaction", "event"] = "fact"
     intensity: float = Field(ge=0.0, le=1.0, default=0.5)
+
+
+class MemoryExtractionList(RootModel[list[MemoryExtraction]]):
+    """List of memory extractions for JSON schema."""
+
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +126,7 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                     temperature=0.2,  # Low temperature for consistent extraction
                     max_output_tokens=1000,
                     response_mime_type="application/json",
-                    response_schema=list[MemoryExtraction],
+                    response_json_schema=MemoryExtractionList.model_json_schema(),
                 ),
             )
 
@@ -133,27 +138,24 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                 response_text=raw,
             )
 
-            # Parse JSON response (structured output guarantees valid JSON)
+            # Parse and validate response with Pydantic
             memories: list[Memory] = []
 
             try:
-                data = json.loads(raw)
-                if isinstance(data, list):
-                    for item in data:
-                        # Validate with Pydantic schema
-                        extraction = MemoryExtraction(**item)
-                        memory = Memory(
-                            content=extraction.content,
-                            user=extraction.user,
-                            memory_type=MemoryType(extraction.type),
-                            intensity=extraction.intensity,
-                        )
-                        if memory.content:  # Only add if there's content
-                            memories.append(memory)
+                extractions = MemoryExtractionList.model_validate_json(raw)
+                for extraction in extractions.root:
+                    memory = Memory(
+                        content=extraction.content,
+                        user=extraction.user,
+                        memory_type=MemoryType(extraction.type),
+                        intensity=extraction.intensity,
+                    )
+                    if memory.content:  # Only add if there's content
+                        memories.append(memory)
 
-            except (json.JSONDecodeError, ValueError) as e:
+            except Exception as e:
                 # Shouldn't happen with structured output, but log if it does
-                logger.error(f"Unexpected JSON parse error with structured output: {e}\nRaw: {raw}")
+                logger.error(f"Failed to parse memory extraction response: {e}\nRaw: {raw}")
 
             # Store memories
             if memories:

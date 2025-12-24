@@ -5,10 +5,17 @@ from dataclasses import dataclass
 
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 
 logger = logging.getLogger(__name__)
+
+
+class EngagementResponse(BaseModel):
+    """Schema for engagement check response."""
+
+    should_respond: bool
 
 
 ENGAGEMENT_SYSTEM_PROMPT = """You are an engagement detector for an IRC chatbot system.
@@ -22,8 +29,9 @@ Consider these factors:
 
 Important: The bots should NOT overwhelm human conversation. When in doubt, lean towards "no".
 
-Respond with exactly one word: "yes" or "no"
+Respond with raw JSON, as {'should_respond': bool}
 """
+
 
 
 @dataclass
@@ -81,7 +89,7 @@ Latest message to evaluate: "{message}"
 
 Detected factors: {factors_text}
 
-Should the bots respond to this? (yes/no)"""
+Should the bots respond to this?"""
 
         try:
             # Log LLM input
@@ -90,7 +98,7 @@ Should the bots respond to this? (yes/no)"""
                 model=self._model,
                 system_prompt=ENGAGEMENT_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                config={"temperature": 0.1, "max_output_tokens": 10},
+                config={"temperature": 0.1, "max_output_tokens": 512, "json_mode": True},
             )
 
             response = await self._client.aio.models.generate_content(
@@ -98,19 +106,28 @@ Should the bots respond to this? (yes/no)"""
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=ENGAGEMENT_SYSTEM_PROMPT,
-                    temperature=0.1,  # Low temperature for consistent decisions
-                    max_output_tokens=10,
+                    temperature=0.1,
+                    max_output_tokens=512,
+                    response_mime_type="application/json",
+                    response_json_schema=EngagementResponse.model_json_schema(),
                 ),
             )
 
-            raw = response.text.strip().lower()
+            raw = response.text or ""
+
+            # Parse and validate response with Pydantic
+            try:
+                parsed = EngagementResponse.model_validate_json(raw)
+                is_engaged = parsed.should_respond
+            except Exception as e:
+                logger.warning(f"Failed to parse engagement response: {e}, raw: {raw}")
+                is_engaged = False
 
             # Log LLM response
             log_llm_response(
                 operation="Engagement Check",
                 response_text=raw,
             )
-            is_engaged = raw.startswith("yes")
 
             # Log the decision
             preview = message[:80] + "..." if len(message) > 80 else message

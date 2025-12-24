@@ -131,13 +131,14 @@ class Orchestrator:
 
         Buffers messages and processes after 2 seconds of silence.
         """
-        # Always add to router for context tracking
-        await self._router.add_message(message)
-
         # Check if this is a bot message - might trigger bickering
+        # Don't add to router here; bot messages are added when sent in _send_responses
         if self._irc and self._irc.is_bot_message(message.sender):
             await self._maybe_bicker_response(message)
             return
+
+        # Add human messages to router for context tracking
+        await self._router.add_message(message)
 
         # Log received message
         if message.is_action:
@@ -313,14 +314,26 @@ class Orchestrator:
             return
 
         bot_name = "merry" if bot == BotIdentity.MERRY else "hachiman"
+        bot_nick = (
+            self._config.irc.nick_merry
+            if bot == BotIdentity.MERRY
+            else self._config.irc.nick_hachiman
+        )
 
         for msg in messages:
             # Check for /me prefix to send as action
             if msg.startswith("/me "):
                 action_content = msg[4:]  # Strip "/me "
                 await self._irc.send(bot_name, channel, action_content, is_action=True)
+                # Add bot's message to router so it appears in context
+                bot_msg = Message(
+                    channel=channel, sender=bot_nick, content=action_content, is_action=True
+                )
             else:
                 await self._irc.send(bot_name, channel, msg)
+                # Add bot's message to router so it appears in context
+                bot_msg = Message(channel=channel, sender=bot_nick, content=msg)
+            await self._router.add_message(bot_msg)
 
         # Record that the bot spoke (for alternation bias)
         if messages:
@@ -403,7 +416,7 @@ class Orchestrator:
             channel, self._bot_nicks
         )
 
-        # Step 1: Statistical gate
+        # Step 1: Analyze gate factors
         with log_timing(logger, "Gate check"):
             gate_result = self._gate.should_respond(
                 message=message.content,
@@ -411,36 +424,30 @@ class Orchestrator:
                 consecutive_bot_messages=consecutive_bot,
             )
 
-        if not gate_result.should_respond:
-            return ProcessingResult(
-                responded=False,
-                gate_passed=False,
-                reason=f"Gate failed: P={gate_result.probability:.3f}",
-            )
+        # Gate is a fast-path bypass: if it passes, skip engagement check
+        # If it fails, we still run the engagement check to let the LLM decide
+        bypass_engagement = gate_result.should_respond
 
-        # Step 2: Engagement check (LLM-based)
-        recent_messages = await self._router.get_recent_messages(channel, count=5)
-        recent_context = self._router.format_context(recent_messages)
+        if not bypass_engagement:
+            # Step 2: Engagement check (LLM-based)
+            recent_messages = await self._router.get_recent_messages(channel, count=10)
+            recent_context = self._router.format_context(recent_messages)
 
-        with log_timing(logger, "Engagement check"):
-            engagement_result = await self._engagement.check(
-                message=message.content,
-                recent_context=recent_context,
-                mentioned=gate_result.factors.mentioned,
-                is_question=gate_result.factors.is_question,
-            )
+            with log_timing(logger, "Engagement check"):
+                engagement_result = await self._engagement.check(
+                    message=message.content,
+                    recent_context=recent_context,
+                    mentioned=gate_result.factors.mentioned,
+                    is_question=gate_result.factors.is_question,
+                )
 
-        # Direct addresses and mentions override engagement check
-        bypass_engagement = (
-            gate_result.factors.directly_addressed or gate_result.factors.mentioned
-        )
-        if not engagement_result.is_engaged and not bypass_engagement:
-            return ProcessingResult(
-                responded=False,
-                gate_passed=True,
-                engagement_passed=False,
-                reason=f"Engagement check failed: {engagement_result.raw_response}",
-            )
+            if not engagement_result.is_engaged:
+                return ProcessingResult(
+                    responded=False,
+                    gate_passed=False,
+                    engagement_passed=False,
+                    reason=f"Engagement check failed: {engagement_result.raw_response}",
+                )
 
         # Step 3: Bot selection
         # Direct address forces specific bot
