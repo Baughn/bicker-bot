@@ -82,7 +82,7 @@ How likely should the other bot respond? (0-100)"""
                 model=self._model,
                 system_prompt=BICKER_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                config={"temperature": 0.3, "max_output_tokens": 10},
+                config={"temperature": 0.3, "max_output_tokens": 100},
             )
 
             response = await self._client.aio.models.generate_content(
@@ -91,7 +91,7 @@ How likely should the other bot respond? (0-100)"""
                 config=types.GenerateContentConfig(
                     system_instruction=BICKER_SYSTEM_PROMPT,
                     temperature=0.3,
-                    max_output_tokens=10,
+                    max_output_tokens=100,
                 ),
             )
 

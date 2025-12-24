@@ -115,7 +115,7 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                 model=self._model,
                 system_prompt=EXTRACTION_SYSTEM_PROMPT,
                 user_prompt=prompt,
-                config={"temperature": 0.2, "max_output_tokens": 1000},
+                config={"temperature": 0.2, "max_output_tokens": 8192},
             )
 
             response = await self._client.aio.models.generate_content(
@@ -124,7 +124,7 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                 config=types.GenerateContentConfig(
                     system_instruction=EXTRACTION_SYSTEM_PROMPT,
                     temperature=0.2,  # Low temperature for consistent extraction
-                    max_output_tokens=1000,
+                    max_output_tokens=8192,
                     response_mime_type="application/json",
                     response_json_schema=MemoryExtractionList.model_json_schema(),
                 ),

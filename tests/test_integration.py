@@ -62,8 +62,8 @@ class TestEngagementIntegration:
             is_question=True,
         )
 
-        # Direct mentions should generally trigger engagement
-        assert result.is_engaged or "error" in result.raw_response
+        # Direct mentions should have high probability (70%+)
+        assert result.probability >= 0.7 or "error" in result.raw_response
 
     @pytest.mark.asyncio
     async def test_engagement_check_noise(self, engagement_checker: EngagementChecker):
@@ -75,8 +75,8 @@ class TestEngagementIntegration:
             is_question=False,
         )
 
-        # Should not engage with noise
-        assert not result.is_engaged or "error" in result.raw_response
+        # Noise should have low probability (under 50%)
+        assert result.probability < 0.5 or "error" in result.raw_response
 
 
 class TestResponseIntegration:

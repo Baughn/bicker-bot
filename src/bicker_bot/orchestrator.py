@@ -441,13 +441,23 @@ class Orchestrator:
                     is_question=gate_result.factors.is_question,
                 )
 
-            if not engagement_result.is_engaged:
+            # Roll against engagement probability
+            roll = random.random()
+            if roll >= engagement_result.probability:
+                logger.info(
+                    f"ENGAGE: P={engagement_result.probability:.3f} "
+                    f"roll={roll:.3f} -> SKIP"
+                )
                 return ProcessingResult(
                     responded=False,
                     gate_passed=False,
                     engagement_passed=False,
-                    reason=f"Engagement check failed: {engagement_result.raw_response}",
+                    reason=f"Engagement roll failed: P={engagement_result.probability:.2f} roll={roll:.2f}",
                 )
+            logger.info(
+                f"ENGAGE: P={engagement_result.probability:.3f} "
+                f"roll={roll:.3f} -> RESPOND"
+            )
 
         # Step 3: Bot selection
         # Direct address forces specific bot

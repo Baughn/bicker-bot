@@ -1,6 +1,7 @@
 """Engagement check using Gemini Flash."""
 
 import logging
+import re
 from dataclasses import dataclass
 
 from google import genai
@@ -15,21 +16,25 @@ logger = logging.getLogger(__name__)
 class EngagementResponse(BaseModel):
     """Schema for engagement check response."""
 
-    should_respond: bool
+    probability: int  # 0-100
 
 
-ENGAGEMENT_SYSTEM_PROMPT = """You are an engagement detector for an IRC chatbot system.
-Your job is to determine if a message represents genuine human engagement that warrants a bot response.
+ENGAGEMENT_SYSTEM_PROMPT = """You evaluate whether an IRC message warrants a chatbot response.
 
-Consider these factors:
-1. Is the message directed at the conversation or just ambient chatter?
-2. Does the message invite response (questions, opinions sought, topics opened)?
+Consider:
+1. Is the message directed at the bots or the conversation generally?
+2. Does it invite response (questions, opinions sought, topics opened)?
 3. Is this part of an active discussion or random noise?
 4. Would a response feel natural and welcome, or intrusive?
 
-Important: The bots should NOT overwhelm human conversation. When in doubt, lean towards "no".
+Respond with raw JSON containing a probability 0-100:
+- 95-100: Direct interaction (mentions bot by name, asks question to bots, requests help, directly responding to the bot)
+- 70-90: Engaging discussion regarding the bot, or a continuation of previous conversation with the bot
+- 20-40: Neutral conversation, bots could contribute if relevant
+- 5-15: Ambient chatter, bots probably shouldn't jump in
+- 0-5: Private conversation or noise, bots should stay out
 
-Respond with raw JSON, as {'should_respond': bool}
+Example: {"probability": 75}
 """
 
 
@@ -38,7 +43,7 @@ Respond with raw JSON, as {'should_respond': bool}
 class EngagementResult:
     """Result of engagement check."""
 
-    is_engaged: bool
+    probability: float  # 0.0 to 1.0
     raw_response: str
 
 
@@ -89,7 +94,7 @@ Latest message to evaluate: "{message}"
 
 Detected factors: {factors_text}
 
-Should the bots respond to this?"""
+What is the probability (0-100) that the bots should respond?"""
 
         try:
             # Log LLM input
@@ -115,45 +120,63 @@ Should the bots respond to this?"""
 
             raw = response.text or ""
 
-            # Parse and validate response with Pydantic
-            try:
-                parsed = EngagementResponse.model_validate_json(raw)
-                is_engaged = parsed.should_respond
-            except Exception as e:
-                logger.warning(f"Failed to parse engagement response: {e}, raw: {raw}")
-                is_engaged = False
-
             # Log LLM response
             log_llm_response(
                 operation="Engagement Check",
                 response_text=raw,
             )
 
+            # Parse probability from response
+            probability = self._parse_probability(raw, mentioned)
+
             # Log the decision
             preview = message[:80] + "..." if len(message) > 80 else message
-            status = "YES" if is_engaged else "NO"
             logger.info(
-                f"ENGAGEMENT: '{preview}' -> {status} "
+                f"ENGAGEMENT: '{preview}' -> {probability:.0%} "
                 f"[mentioned={mentioned}, question={is_question}]"
             )
 
             # Track stats
             stats = get_session_stats()
             stats.increment_api_call(self._model)
-            if is_engaged:
-                stats.increment("engagement_passes")
-            else:
-                stats.increment("engagement_fails")
 
             return EngagementResult(
-                is_engaged=is_engaged,
+                probability=probability,
                 raw_response=raw,
             )
 
         except Exception as e:
             logger.error(f"Engagement check failed: {e}")
-            # On error, default to responding if mentioned
+            # On error, default to high probability if mentioned, low otherwise
+            fallback_prob = 0.9 if mentioned else 0.1
             return EngagementResult(
-                is_engaged=mentioned,
+                probability=fallback_prob,
                 raw_response=f"error: {e}",
             )
+
+    def _parse_probability(self, raw: str, mentioned: bool) -> float:
+        """Parse a probability from the LLM response.
+
+        Args:
+            raw: Raw response text (should contain a number 0-100 or JSON)
+            mentioned: Whether bot was mentioned (for fallback)
+
+        Returns:
+            Probability as float 0.0-1.0
+        """
+        # Try to parse as JSON first
+        try:
+            parsed = EngagementResponse.model_validate_json(raw)
+            return min(100, max(0, parsed.probability)) / 100.0
+        except Exception:
+            pass
+
+        # Fall back to extracting first number
+        match = re.search(r"\d+", raw)
+        if match:
+            value = int(match.group())
+            return min(100, max(0, value)) / 100.0
+
+        # If we can't parse, return based on mention status
+        logger.warning(f"Could not parse engagement probability from: {raw}")
+        return 0.9 if mentioned else 0.1
