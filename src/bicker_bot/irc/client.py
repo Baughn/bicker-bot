@@ -84,8 +84,12 @@ class BotClient(pydle.Client):
             except Exception:
                 logger.exception(f"[{self.nickname}] Error handling message")
 
-    async def on_ctcp_action(self, target: str, source: str, message: str) -> None:
-        """Handle /me actions."""
+    async def on_ctcp_action(self, source: str, target: str, message: str) -> None:
+        """Handle /me actions.
+
+        Note: pydle's on_ctcp_action signature is (by, target, contents) which differs
+        from on_message's (target, source, message). The first two params are swapped.
+        """
         if source == self.nickname:
             return
 
@@ -205,20 +209,32 @@ class IRCClient:
             raise RuntimeError("Not connected")
         await self._hachiman.send_message(channel, content)
 
-    async def send(self, bot: str, channel: str, content: str) -> None:
-        """Send a message as the specified bot.
+    async def send(
+        self, bot: str, channel: str, content: str, is_action: bool = False
+    ) -> None:
+        """Send a message or action as the specified bot.
 
         Args:
             bot: Either "merry" or "hachiman"
             channel: Target channel
-            content: Message content
+            content: Message content (for actions, this is the action text without /me)
+            is_action: If True, send as CTCP ACTION (/me)
         """
-        if bot.lower() == "merry":
-            await self.send_as_merry(channel, content)
-        elif bot.lower() == "hachiman":
-            await self.send_as_hachiman(channel, content)
+        bot_lower = bot.lower()
+        if bot_lower == "merry":
+            client = self._merry
+        elif bot_lower == "hachiman":
+            client = self._hachiman
         else:
             raise ValueError(f"Unknown bot: {bot}")
+
+        if client is None:
+            raise RuntimeError("Not connected")
+
+        if is_action:
+            await client.send_action(channel, content)
+        else:
+            await client.send_message(channel, content)
 
     @property
     def merry_nick(self) -> str:

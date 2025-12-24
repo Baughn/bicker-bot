@@ -96,12 +96,14 @@ You can respond with:
 - No messages (if nothing worth saying)
 - One message (typical case)
 - Multiple messages (if addressing multiple people or topics)
+- Actions (IRC /me) by prefixing with "/me " - use sparingly for emphasis
 
 Bias toward fewer messages unless specifically addressing multiple people.
 
 Format your response as a JSON array of strings, like:
 ["first message"]
 or for multiple: ["first message", "second message"]
+or with an action: ["/me sighs", "Fine, I'll help."]
 or for no response: []"""
 
         if bot == BotIdentity.HACHIMAN:

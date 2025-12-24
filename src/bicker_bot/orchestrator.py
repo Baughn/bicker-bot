@@ -140,7 +140,10 @@ class Orchestrator:
             return
 
         # Log received message
-        logger.info(f"MSG_RECEIVED: <{message.sender}> {message.content}")
+        if message.is_action:
+            logger.info(f"MSG_RECEIVED: * {message.sender} {message.content}")
+        else:
+            logger.info(f"MSG_RECEIVED: <{message.sender}> {message.content}")
 
         # Track stats
         stats = get_session_stats()
@@ -312,7 +315,12 @@ class Orchestrator:
         bot_name = "merry" if bot == BotIdentity.MERRY else "hachiman"
 
         for msg in messages:
-            await self._irc.send(bot_name, channel, msg)
+            # Check for /me prefix to send as action
+            if msg.startswith("/me "):
+                action_content = msg[4:]  # Strip "/me "
+                await self._irc.send(bot_name, channel, action_content, is_action=True)
+            else:
+                await self._irc.send(bot_name, channel, msg)
 
         # Record that the bot spoke (for alternation bias)
         if messages:
