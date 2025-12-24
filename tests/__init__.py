@@ -1,0 +1,1 @@
+"""Bicker-bot test suite."""

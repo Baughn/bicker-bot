@@ -1,0 +1,34 @@
+# Bicker-Bot Configuration
+# Copy to config.yaml and fill in your values
+
+irc:
+  server: "irc.libera.chat"
+  port: 6697
+  ssl: true
+  nick_merry: "Merry"
+  nick_hachiman: "Hachi"
+  channels:
+    - "#your-channel"
+  # Optional: NickServ password for both bots
+  # nickserv_password_merry: "secret"
+  # nickserv_password_hachiman: "secret"
+
+llm:
+  # Set via environment variables:
+  # ANTHROPIC_API_KEY, GOOGLE_API_KEY
+  # Or override here:
+  # anthropic_api_key: "sk-ant-..."
+  # google_api_key: "..."
+
+memory:
+  chroma_path: "./data/chroma"
+  embedding_model: "nomic-ai/nomic-embed-text-v1.5"
+  high_intensity_threshold: 0.7
+
+gate:
+  base_prob: 0.05
+  mention_prob: 0.8
+  question_prob: 0.3
+  conversation_start_prob: 0.4
+  decay_factor: 0.5
+  silence_threshold_minutes: 5
