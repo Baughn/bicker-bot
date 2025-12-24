@@ -9,12 +9,26 @@ from google import genai
 from google.genai import types
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
-from bicker_bot.memory import Memory, MemoryStore
+from bicker_bot.memory import BotIdentity, Memory, MemoryStore
 
 logger = logging.getLogger(__name__)
 
 
-CONTEXT_SYSTEM_PROMPT = """You are a context gatherer for an IRC chatbot. Your job is to prepare context for a response.
+# Bot descriptions for context gathering
+BOT_DESCRIPTIONS = {
+    BotIdentity.MERRY: "a direct, action-oriented dream demon who dislikes overthinking and prefers to tackle problems head-on",
+    BotIdentity.HACHIMAN: "a cynical observer who analyzes everything, uses self-deprecating humor, and secretly cares despite his pessimism",
+}
+
+
+def get_context_system_prompt(bot_nickname: str, bot_identity: BotIdentity) -> str:
+    """Generate context system prompt with bot identity."""
+    bot_description = BOT_DESCRIPTIONS.get(bot_identity, "an IRC chatbot")
+    return f"""You are a context gatherer for {bot_nickname}, an IRC chatbot.
+
+{bot_nickname} is {bot_description}.
+
+Your job is to prepare context for {bot_nickname}'s response.
 
 You have access to two tools:
 1. rag_search - Search the memory database for relevant past information
@@ -137,6 +151,8 @@ class ContextBuilder:
         recent_context: str,
         sender: str,
         high_intensity_memories: list[Memory],
+        bot_identity: BotIdentity,
+        bot_nickname: str,
     ) -> ContextResult:
         """Build context for a response.
 
@@ -145,6 +161,8 @@ class ContextBuilder:
             recent_context: Recent conversation formatted
             sender: Who sent the message
             high_intensity_memories: Pre-fetched high-intensity memories for sender
+            bot_identity: Which bot will respond (MERRY or HACHIMAN)
+            bot_nickname: The IRC nickname of the responding bot
 
         Returns:
             ContextResult with gathered information
@@ -169,11 +187,14 @@ Latest message from {sender}: "{message}"
 {hi_memories_str}
 Analyze this and gather any additional context needed. Use rag_search if you need more information, or call ready_to_respond if you have enough."""
 
+        # Generate system prompt with bot identity
+        system_prompt = get_context_system_prompt(bot_nickname, bot_identity)
+
         # Log LLM input
         log_llm_call(
             operation="Context Build (initial)",
             model=self._model,
-            system_prompt=CONTEXT_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=initial_prompt,
             tools=[RAG_SEARCH_TOOL],
             config={"temperature": 0.3},
@@ -183,7 +204,7 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
         chat = self._client.aio.chats.create(
             model=self._model,
             config=types.GenerateContentConfig(
-                system_instruction=CONTEXT_SYSTEM_PROMPT,
+                system_instruction=system_prompt,
                 temperature=0.3,
                 tools=[RAG_SEARCH_TOOL],
             ),

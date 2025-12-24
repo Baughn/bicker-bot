@@ -20,9 +20,13 @@ class GateFactors:
     is_question: bool = False
     is_conversation_start: bool = False
     consecutive_bot_messages: int = 0
+    directly_addressed: bool = False  # "botname:" or "botname," at start
+    addressed_bot: str | None = None  # Which bot was addressed (lowercase)
 
     def __str__(self) -> str:
         parts = []
+        if self.directly_addressed:
+            parts.append(f"direct@{self.addressed_bot}")
         if self.mentioned:
             parts.append("mentioned")
         if self.is_question:
@@ -64,14 +68,35 @@ class ResponseGate:
     def __init__(self, config: GateConfig, bot_nicks: tuple[str, str]):
         self._config = config
         self._bot_nicks = tuple(nick.lower() for nick in bot_nicks)
+        self._bot_nicks_original = bot_nicks  # Keep original case for matching
         # Compile patterns for mention detection
         self._mention_patterns = [
             re.compile(rf"\b{re.escape(nick)}\b", re.IGNORECASE) for nick in bot_nicks
+        ]
+        # Compile patterns for direct address (botname: or botname, at start)
+        self._direct_address_patterns = [
+            (nick.lower(), re.compile(rf"^{re.escape(nick)}[:,]\s*", re.IGNORECASE))
+            for nick in bot_nicks
         ]
 
     def _check_mention(self, message: str) -> bool:
         """Check if message mentions either bot."""
         return any(pattern.search(message) for pattern in self._mention_patterns)
+
+    def _check_direct_address(self, message: str) -> tuple[bool, str | None]:
+        """Check if message directly addresses a bot (botname: or botname,).
+
+        Returns:
+            Tuple of (is_direct_address, bot_nick_lowercase)
+        """
+        for nick_lower, pattern in self._direct_address_patterns:
+            if pattern.match(message):
+                return True, nick_lower
+        return False, None
+
+    def check_direct_address(self, message: str) -> tuple[bool, str | None]:
+        """Public method to check direct address. Used by orchestrator."""
+        return self._check_direct_address(message)
 
     def _check_question(self, message: str) -> bool:
         """Check if message is a question."""
@@ -99,11 +124,14 @@ class ResponseGate:
         current_time: datetime | None = None,
     ) -> GateFactors:
         """Analyze a message and return the probability factors."""
+        directly_addressed, addressed_bot = self._check_direct_address(message)
         return GateFactors(
             mentioned=self._check_mention(message),
             is_question=self._check_question(message),
             is_conversation_start=self._check_conversation_start(last_activity, current_time),
             consecutive_bot_messages=consecutive_bot_messages,
+            directly_addressed=directly_addressed,
+            addressed_bot=addressed_bot,
         )
 
     def calculate_probability(self, factors: GateFactors) -> float:
@@ -112,6 +140,10 @@ class ResponseGate:
         Returns a value between 0.0 and 1.0.
         """
         cfg = self._config
+
+        # Direct address (botname: or botname,) is nearly guaranteed
+        if factors.directly_addressed:
+            return 1.0
 
         # Additive factors (capped at 1.0)
         prob = cfg.base_prob

@@ -1,7 +1,8 @@
 """Response generator using Opus or Gemini Pro."""
 
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
@@ -18,9 +19,9 @@ logger = logging.getLogger(__name__)
 class ResponseResult:
     """Result of response generation."""
 
-    content: str
-    bot: BotIdentity
-    model_used: str
+    messages: list[str] = field(default_factory=list)  # Can be empty, 1, or multiple
+    bot: BotIdentity = BotIdentity.HACHIMAN
+    model_used: str = ""
 
 
 class ResponseGenerator:
@@ -80,7 +81,19 @@ Context gathered:
 Latest message from {sender}: "{message}"
 
 Respond naturally as your character. Keep it conversational and IRC-appropriate (not too long).
-Do not use markdown formatting. Do not prefix your response with your name."""
+Do not use markdown formatting. Do not prefix your response with your name.
+
+You can respond with:
+- No messages (if nothing worth saying)
+- One message (typical case)
+- Multiple messages (if addressing multiple people or topics)
+
+Bias toward fewer messages unless specifically addressing multiple people.
+
+Format your response as a JSON array of strings, like:
+["first message"]
+or for multiple: ["first message", "second message"]
+or for no response: []"""
 
         if bot == BotIdentity.HACHIMAN:
             return await self._generate_opus(
@@ -113,6 +126,20 @@ Do not use markdown formatting. Do not prefix your response with your name."""
 
         return "\n".join(lines) if lines else "No additional context."
 
+    def _parse_response_json(self, raw: str | None) -> list[str]:
+        """Parse LLM response as JSON array of messages."""
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(m) for m in parsed if m]
+            # Single string returned instead of array
+            return [str(parsed)] if parsed else []
+        except json.JSONDecodeError:
+            # Fallback: treat raw text as single message
+            return [raw.strip()] if raw.strip() else []
+
     async def _generate_opus(
         self,
         system_prompt: str,
@@ -136,12 +163,13 @@ Do not use markdown formatting. Do not prefix your response with your name."""
                 messages=[{"role": "user", "content": user_prompt}],
             )
 
-            content = response.content[0].text
+            raw_content = response.content[0].text if response.content else None
+            messages = self._parse_response_json(raw_content)
 
             # Log LLM response
             log_llm_response(
                 operation="Response Generation (Hachiman)",
-                response_text=content,
+                response_text=raw_content,
                 usage={
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens,
@@ -152,9 +180,10 @@ Do not use markdown formatting. Do not prefix your response with your name."""
             logger.info(
                 f"RESPONSE [hachiman]: model={self._opus_model} "
                 f"tokens_in={response.usage.input_tokens} "
-                f"tokens_out={response.usage.output_tokens}"
+                f"tokens_out={response.usage.output_tokens} "
+                f"messages={len(messages)}"
             )
-            logger.info(f"LITERAL_RESPONSE: {content}")
+            logger.info(f"LITERAL_RESPONSE: {raw_content}")
 
             # Track stats
             stats = get_session_stats()
@@ -162,7 +191,7 @@ Do not use markdown formatting. Do not prefix your response with your name."""
             stats.increment_api_call(self._opus_model)
 
             return ResponseResult(
-                content=content,
+                messages=messages,
                 bot=BotIdentity.HACHIMAN,
                 model_used=self._opus_model,
             )
@@ -171,7 +200,7 @@ Do not use markdown formatting. Do not prefix your response with your name."""
             logger.error(f"Opus generation failed: {e}")
             logger.warning("RESPONSE [hachiman]: Using fallback response")
             return ResponseResult(
-                content="...I had a thought, but it got away from me.",
+                messages=["...I had a thought, but it got away from me."],
                 bot=BotIdentity.HACHIMAN,
                 model_used="fallback",
             )
@@ -202,17 +231,18 @@ Do not use markdown formatting. Do not prefix your response with your name."""
                 ),
             )
 
-            content = response.text
+            raw_content = response.text if response else None
+            messages = self._parse_response_json(raw_content)
 
             # Log LLM response
             log_llm_response(
                 operation="Response Generation (Merry)",
-                response_text=content,
+                response_text=raw_content,
             )
 
             # Log response (Gemini doesn't expose token counts the same way)
-            logger.info(f"RESPONSE [merry]: model={self._gemini_model}")
-            logger.info(f"LITERAL_RESPONSE: {content}")
+            logger.info(f"RESPONSE [merry]: model={self._gemini_model} messages={len(messages)}")
+            logger.info(f"LITERAL_RESPONSE: {raw_content}")
 
             # Track stats
             stats = get_session_stats()
@@ -220,7 +250,7 @@ Do not use markdown formatting. Do not prefix your response with your name."""
             stats.increment_api_call(self._gemini_model)
 
             return ResponseResult(
-                content=content,
+                messages=messages,
                 bot=BotIdentity.MERRY,
                 model_used=self._gemini_model,
             )
@@ -229,7 +259,7 @@ Do not use markdown formatting. Do not prefix your response with your name."""
             logger.error(f"Gemini generation failed: {e}")
             logger.warning("RESPONSE [merry]: Using fallback response")
             return ResponseResult(
-                content="Tch... something's off. Let me think about this.",
+                messages=["Tch... something's off. Let me think about this."],
                 bot=BotIdentity.MERRY,
                 model_used="fallback",
             )

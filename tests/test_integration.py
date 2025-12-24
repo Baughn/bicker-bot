@@ -104,9 +104,9 @@ class TestResponseIntegration:
             sender="Alice",
         )
 
-        assert result.content
+        assert result.messages
         assert result.bot == BotIdentity.HACHIMAN
-        assert len(result.content) > 0
+        assert len(result.messages) > 0
 
     @pytest.mark.asyncio
     async def test_generate_as_merry(self, responder: ResponseGenerator):
@@ -120,9 +120,9 @@ class TestResponseIntegration:
             sender="Bob",
         )
 
-        assert result.content
+        assert result.messages
         assert result.bot == BotIdentity.MERRY
-        assert len(result.content) > 0
+        assert len(result.messages) > 0
 
 
 class TestPipelineIntegration:
@@ -235,7 +235,7 @@ class TestPersonalityConsistency:
         )
 
         # Should have some response, personality will vary
-        assert result.content
+        assert result.messages
         # Not asserting specific content since LLMs are variable
 
     @pytest.mark.asyncio
@@ -250,5 +250,5 @@ class TestPersonalityConsistency:
             sender="Frank",
         )
 
-        assert result.content
+        assert result.messages
         # Merry should be encouraging but direct

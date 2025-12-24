@@ -154,7 +154,7 @@ class IRCClient:
         self._hachiman = BotClient(
             nickname=irc_cfg.nick_hachiman,
             channels=irc_cfg.channels,
-            on_message=self.on_message,
+            on_message=None,  # Only Merry reads; Hachiman only sends
             nickserv_password=hachi_pass,
         )
 
