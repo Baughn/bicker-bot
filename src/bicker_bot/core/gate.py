@@ -1,11 +1,15 @@
 """Statistical response gate for deciding whether to respond."""
 
+import logging
 import random
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from bicker_bot.config import GateConfig
+from bicker_bot.core.logging import get_session_stats
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -158,9 +162,32 @@ class ResponseGate:
         probability = self.calculate_probability(factors)
         roll = _roll if _roll is not None else random.random()
 
-        return GateResult(
+        result = GateResult(
             should_respond=roll < probability,
             probability=probability,
             factors=factors,
             roll=roll,
         )
+
+        # Log the decision
+        status = "PASS" if result.should_respond else "FAIL"
+        logger.info(f"GATE: P={probability:.3f} roll={roll:.3f} -> {status} | {factors}")
+
+        # Log detailed calculation at DEBUG
+        cfg = self._config
+        logger.debug(
+            f"Gate calculation: base={cfg.base_prob} + "
+            f"mention={cfg.mention_prob if factors.mentioned else 0} + "
+            f"question={cfg.question_prob if factors.is_question else 0} + "
+            f"conv_start={cfg.conversation_start_prob if factors.is_conversation_start else 0} "
+            f"* decay^{factors.consecutive_bot_messages}"
+        )
+
+        # Track stats
+        stats = get_session_stats()
+        if result.should_respond:
+            stats.increment("gate_passes")
+        else:
+            stats.increment("gate_fails")
+
+        return result

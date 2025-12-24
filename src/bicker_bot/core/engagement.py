@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from google import genai
 from google.genai import types
 
+from bicker_bot.core.logging import get_session_stats
+
 logger = logging.getLogger(__name__)
 
 
@@ -95,7 +97,21 @@ Should the bots respond to this? (yes/no)"""
             raw = response.text.strip().lower()
             is_engaged = raw.startswith("yes")
 
-            logger.debug(f"Engagement check: '{message[:50]}...' -> {raw}")
+            # Log the decision
+            preview = message[:80] + "..." if len(message) > 80 else message
+            status = "YES" if is_engaged else "NO"
+            logger.info(
+                f"ENGAGEMENT: '{preview}' -> {status} "
+                f"[mentioned={mentioned}, question={is_question}]"
+            )
+
+            # Track stats
+            stats = get_session_stats()
+            stats.increment_api_call(self._model)
+            if is_engaged:
+                stats.increment("engagement_passes")
+            else:
+                stats.increment("engagement_fails")
 
             return EngagementResult(
                 is_engaged=is_engaged,

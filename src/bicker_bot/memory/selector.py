@@ -239,9 +239,25 @@ class BotSelector:
                 selected = BotIdentity.HACHIMAN
             reason = "Tie-breaker: choosing whoever spoke less recently"
 
-        return SelectionResult(
+        result = SelectionResult(
             selected=selected,
             merry_score=scores[BotIdentity.MERRY],
             hachiman_score=scores[BotIdentity.HACHIMAN],
             reason=reason,
         )
+
+        # Log the selection
+        recency_note = (
+            f"applied to {self._last_speaker.value}"
+            if self._last_speaker
+            else "none"
+        )
+        logger.info(
+            f"BOT_SELECT: {selected.value.upper()} | "
+            f"scores=[merry={scores[BotIdentity.MERRY]:.3f}, "
+            f"hachi={scores[BotIdentity.HACHIMAN]:.3f}] | "
+            f"recency_penalty={recency_note}"
+        )
+        logger.debug(f"Selection reason: {reason}")
+
+        return result

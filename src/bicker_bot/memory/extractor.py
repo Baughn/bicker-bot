@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from google import genai
 from google.genai import types
 
+from bicker_bot.core.logging import get_session_stats
 from bicker_bot.memory.store import Memory, MemoryStore, MemoryType
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,28 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
             # Store memories
             if memories:
                 self._memory_store.add_batch(memories)
-                logger.info(f"Extracted and stored {len(memories)} memories")
+                intensities = [f"{m.intensity:.1f}" for m in memories]
+                logger.info(
+                    f"MEMORY_EXTRACT: {len(memories)} memories "
+                    f"(intensities: {intensities})"
+                )
+                # DEBUG log each memory
+                for m in memories:
+                    content_preview = m.content[:60] + "..." if len(m.content) > 60 else m.content
+                    logger.debug(
+                        f"  Extracted: [{m.memory_type.value}] "
+                        f"{m.user or 'global'}: {content_preview}"
+                    )
+
+                # Track stats
+                stats = get_session_stats()
+                stats.increment("memories_stored", len(memories))
+            else:
+                logger.info("MEMORY_EXTRACT: 0 memories (nothing memorable)")
+
+            # Track API call
+            stats = get_session_stats()
+            stats.increment_api_call(self._model)
 
             return ExtractionResult(
                 memories_extracted=memories,

@@ -111,7 +111,10 @@ class MemoryStore:
             documents=[memory.to_chroma_document()],
             metadatas=[memory.to_chroma_metadata()],
         )
-        logger.debug(f"Added memory {memory.id}: {memory.content[:50]}...")
+        logger.info(
+            f"MEMORY_ADD: id={memory.id[:8]}... user={memory.user or 'global'} "
+            f"intensity={memory.intensity:.2f} type={memory.memory_type.value}"
+        )
         return memory.id
 
     def add_batch(self, memories: list[Memory]) -> list[str]:
@@ -124,7 +127,8 @@ class MemoryStore:
             documents=[m.to_chroma_document() for m in memories],
             metadatas=[m.to_chroma_metadata() for m in memories],
         )
-        logger.debug(f"Added {len(memories)} memories")
+        intensities = [f"{m.intensity:.1f}" for m in memories]
+        logger.info(f"MEMORY_BATCH_ADD: {len(memories)} memories (intensities: {intensities})")
         return [m.id for m in memories]
 
     def search(
@@ -194,6 +198,18 @@ class MemoryStore:
                 )
 
                 search_results.append(SearchResult(memory=memory, distance=distance))
+
+        # Log the search
+        query_preview = query[:50] + "..." if len(query) > 50 else query
+        logger.info(
+            f"MEMORY_SEARCH: query='{query_preview}' user={user or 'any'} "
+            f"limit={limit} -> {len(search_results)} results"
+        )
+
+        # Log top results at DEBUG
+        for i, sr in enumerate(search_results[:3]):
+            content_preview = sr.memory.content[:50] + "..." if len(sr.memory.content) > 50 else sr.memory.content
+            logger.debug(f"  #{i+1}: sim={sr.similarity:.3f} '{content_preview}'")
 
         return search_results
 

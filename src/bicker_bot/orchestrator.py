@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
 from bicker_bot.config import Config, get_bot_nicks
@@ -12,11 +13,15 @@ from bicker_bot.core import (
     ResponseGate,
     ResponseGenerator,
 )
+from bicker_bot.core.logging import get_session_stats, log_timing
 from bicker_bot.irc.client import IRCClient, Message
 from bicker_bot.memory import BotIdentity, BotSelector, MemoryExtractor, MemoryStore
 from bicker_bot.personalities import PERSONALITY_PROMPTS
 
 logger = logging.getLogger(__name__)
+
+# How often to log session stats (every N messages)
+STATS_LOG_INTERVAL = 50
 
 
 @dataclass
@@ -97,6 +102,17 @@ class Orchestrator:
             await self._router.add_message(message)
             return
 
+        # Log received message
+        logger.info(f"MSG_RECEIVED: <{message.sender}> {message.content}")
+
+        # Track stats
+        stats = get_session_stats()
+        stats.increment("messages_received")
+
+        # Periodic stats logging
+        if stats.messages_received % STATS_LOG_INTERVAL == 0:
+            logger.info(f"SESSION_STATS: {stats.summary_line()}")
+
         # Add message to buffer
         await self._router.add_message(message)
 
@@ -119,6 +135,7 @@ class Orchestrator:
 
     async def _process_message(self, message: Message) -> ProcessingResult:
         """Process a message through the full pipeline."""
+        pipeline_start = time.perf_counter()
         channel = message.channel
 
         # Get conversation context
@@ -128,13 +145,12 @@ class Orchestrator:
         )
 
         # Step 1: Statistical gate
-        gate_result = self._gate.should_respond(
-            message=message.content,
-            last_activity=last_activity,
-            consecutive_bot_messages=consecutive_bot,
-        )
-
-        logger.debug(f"Gate result: {gate_result}")
+        with log_timing(logger, "Gate check"):
+            gate_result = self._gate.should_respond(
+                message=message.content,
+                last_activity=last_activity,
+                consecutive_bot_messages=consecutive_bot,
+            )
 
         if not gate_result.should_respond:
             return ProcessingResult(
@@ -147,14 +163,13 @@ class Orchestrator:
         recent_messages = await self._router.get_recent_messages(channel, count=5)
         recent_context = self._router.format_context(recent_messages)
 
-        engagement_result = await self._engagement.check(
-            message=message.content,
-            recent_context=recent_context,
-            mentioned=gate_result.factors.mentioned,
-            is_question=gate_result.factors.is_question,
-        )
-
-        logger.debug(f"Engagement result: {engagement_result}")
+        with log_timing(logger, "Engagement check"):
+            engagement_result = await self._engagement.check(
+                message=message.content,
+                recent_context=recent_context,
+                mentioned=gate_result.factors.mentioned,
+                is_question=gate_result.factors.is_question,
+            )
 
         # Mentions override engagement check
         if not engagement_result.is_engaged and not gate_result.factors.mentioned:
@@ -166,10 +181,9 @@ class Orchestrator:
             )
 
         # Step 3: Bot selection
-        selection = self._bot_selector.select(message.content)
-        selected_bot = selection.selected
-
-        logger.debug(f"Bot selected: {selected_bot.value} ({selection.reason})")
+        with log_timing(logger, "Bot selection"):
+            selection = self._bot_selector.select(message.content)
+            selected_bot = selection.selected
 
         # Step 4: Build context
         all_recent = await self._router.get_recent_messages(channel, count=30)
@@ -177,27 +191,31 @@ class Orchestrator:
 
         high_intensity = self._memory_store.get_high_intensity_memories(message.sender)
 
-        context_result = await self._context_builder.build(
-            message=message.content,
-            recent_context=full_context,
-            sender=message.sender,
-            high_intensity_memories=high_intensity,
-        )
-
-        logger.debug(f"Context gathered in {context_result.rounds} rounds")
+        with log_timing(logger, "Context building"):
+            context_result = await self._context_builder.build(
+                message=message.content,
+                recent_context=full_context,
+                sender=message.sender,
+                high_intensity_memories=high_intensity,
+            )
 
         # Step 5: Generate response
-        response_result = await self._responder.generate(
-            bot=selected_bot,
-            system_prompt=PERSONALITY_PROMPTS[selected_bot],
-            context_summary=context_result.summary,
-            recent_conversation=full_context,
-            message=message.content,
-            sender=message.sender,
-        )
+        with log_timing(logger, "Response generation"):
+            response_result = await self._responder.generate(
+                bot=selected_bot,
+                system_prompt=PERSONALITY_PROMPTS[selected_bot],
+                context_summary=context_result.summary,
+                recent_conversation=full_context,
+                message=message.content,
+                sender=message.sender,
+            )
 
+        # Log pipeline completion
+        pipeline_elapsed = (time.perf_counter() - pipeline_start) * 1000
         logger.info(
-            f"[{selected_bot.value}] Response: {response_result.content[:100]}..."
+            f"PIPELINE_COMPLETE: gate=PASS engage=PASS "
+            f"bot={selected_bot.value} rounds={context_result.rounds} "
+            f"total={pipeline_elapsed:.0f}ms"
         )
 
         return ProcessingResult(

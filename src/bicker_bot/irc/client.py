@@ -105,13 +105,13 @@ class BotClient(pydle.Client):
         """Send a message to a channel."""
         await self._ready.wait()
         await self.message(channel, content)
-        logger.debug(f"[{self.nickname}] Sent to {channel}: {content}")
+        logger.info(f"MSG_SENT: [{self.nickname}] -> {channel}: {content}")
 
     async def send_action(self, channel: str, content: str) -> None:
         """Send an action (/me) to a channel."""
         await self._ready.wait()
         await self.ctcp(channel, "ACTION", content)
-        logger.debug(f"[{self.nickname}] Action in {channel}: {content}")
+        logger.info(f"MSG_SENT: [{self.nickname}] -> {channel}: * {content}")
 
     async def wait_ready(self) -> None:
         """Wait until the client is connected and in channels."""

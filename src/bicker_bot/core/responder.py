@@ -8,6 +8,7 @@ import anthropic
 from google import genai
 from google.genai import types
 
+from bicker_bot.core.logging import get_session_stats
 from bicker_bot.memory import BotIdentity
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,18 @@ Do not use markdown formatting. Do not prefix your response with your name."""
 
             content = response.content[0].text
 
-            logger.debug(f"Opus response: {content[:100]}...")
+            # Log response with token usage
+            logger.info(
+                f"RESPONSE [hachiman]: model={self._opus_model} "
+                f"tokens_in={response.usage.input_tokens} "
+                f"tokens_out={response.usage.output_tokens}"
+            )
+            logger.info(f"LITERAL_RESPONSE: {content}")
+
+            # Track stats
+            stats = get_session_stats()
+            stats.increment("responses_hachiman")
+            stats.increment_api_call(self._opus_model)
 
             return ResponseResult(
                 content=content,
@@ -138,6 +150,7 @@ Do not use markdown formatting. Do not prefix your response with your name."""
 
         except Exception as e:
             logger.error(f"Opus generation failed: {e}")
+            logger.warning("RESPONSE [hachiman]: Using fallback response")
             return ResponseResult(
                 content="...I had a thought, but it got away from me.",
                 bot=BotIdentity.HACHIMAN,
@@ -163,7 +176,14 @@ Do not use markdown formatting. Do not prefix your response with your name."""
 
             content = response.text
 
-            logger.debug(f"Gemini response: {content[:100]}...")
+            # Log response (Gemini doesn't expose token counts the same way)
+            logger.info(f"RESPONSE [merry]: model={self._gemini_model}")
+            logger.info(f"LITERAL_RESPONSE: {content}")
+
+            # Track stats
+            stats = get_session_stats()
+            stats.increment("responses_merry")
+            stats.increment_api_call(self._gemini_model)
 
             return ResponseResult(
                 content=content,
@@ -173,6 +193,7 @@ Do not use markdown formatting. Do not prefix your response with your name."""
 
         except Exception as e:
             logger.error(f"Gemini generation failed: {e}")
+            logger.warning("RESPONSE [merry]: Using fallback response")
             return ResponseResult(
                 content="Tch... something's off. Let me think about this.",
                 bot=BotIdentity.MERRY,

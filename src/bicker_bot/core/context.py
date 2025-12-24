@@ -8,6 +8,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
+from bicker_bot.core.logging import get_session_stats
 from bicker_bot.memory import Memory, MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,10 @@ class ContextBuilder:
         """
         result = ContextResult()
 
+        # Log start
+        msg_preview = message[:50] + "..." if len(message) > 50 else message
+        logger.info(f"CONTEXT_BUILD: Starting for sender={sender}, message='{msg_preview}'")
+
         # Format high-intensity memories
         hi_memories_str = ""
         if high_intensity_memories:
@@ -204,7 +209,18 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                         result.summary = json.loads(summary_str)
                     except json.JSONDecodeError:
                         result.summary = {"raw": summary_str}
-                    logger.debug(f"Context gathered in {result.rounds} rounds")
+
+                    # Log completion
+                    logger.info(
+                        f"CONTEXT_BUILD: Complete in {result.rounds} rounds, "
+                        f"{len(result.search_queries)} searches, "
+                        f"{len(result.memories_found)} memories"
+                    )
+
+                    # Track API call
+                    stats = get_session_stats()
+                    stats.increment_api_call(self._model)
+
                     return result
 
                 elif call.name == "rag_search":
@@ -214,6 +230,17 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
 
                     memories = self._execute_rag_search(query, user)
                     result.memories_found.extend(memories)
+
+                    # Log the RAG search
+                    logger.info(
+                        f"RAG_SEARCH: query='{query}' user={user or 'any'} -> "
+                        f"{len(memories)} memories found"
+                    )
+
+                    # Track stats
+                    stats = get_session_stats()
+                    stats.increment("memories_searched")
+                    stats.increment("memories_found", len(memories))
 
                     tool_results.append(
                         types.Part.from_function_response(
@@ -235,5 +262,16 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                 "topic_context": "General conversation",
                 "suggested_tone": "friendly",
             }
+
+        # Log completion (for fallback path)
+        logger.info(
+            f"CONTEXT_BUILD: Complete in {result.rounds} rounds, "
+            f"{len(result.search_queries)} searches, "
+            f"{len(result.memories_found)} memories"
+        )
+
+        # Track API call
+        stats = get_session_stats()
+        stats.increment_api_call(self._model)
 
         return result
