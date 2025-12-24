@@ -250,6 +250,8 @@ or for no response: []"""
                     system_instruction=system_prompt,
                     temperature=0.8,  # Slightly more creative for Merry
                     max_output_tokens=8192,
+                    response_mime_type="application/json",
+                    response_schema=list[str],
                     thinking_config=types.ThinkingConfig(
                         thinkingLevel=types.ThinkingLevel.LOW,
                     ),

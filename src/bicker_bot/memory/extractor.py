@@ -120,6 +120,8 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                     system_instruction=EXTRACTION_SYSTEM_PROMPT,
                     temperature=0.2,  # Low temperature for consistent extraction
                     max_output_tokens=1000,
+                    response_mime_type="application/json",
+                    response_schema=list[MemoryExtraction],
                 ),
             )
 
@@ -131,29 +133,27 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                 response_text=raw,
             )
 
-            # Parse JSON response
-            # Handle potential markdown code blocks
-            if raw.startswith("```"):
-                lines = raw.split("\n")
-                raw = "\n".join(lines[1:-1])
-
+            # Parse JSON response (structured output guarantees valid JSON)
             memories: list[Memory] = []
 
             try:
                 data = json.loads(raw)
                 if isinstance(data, list):
                     for item in data:
+                        # Validate with Pydantic schema
+                        extraction = MemoryExtraction(**item)
                         memory = Memory(
-                            content=item.get("content", ""),
-                            user=item.get("user"),
-                            memory_type=MemoryType(item.get("type", "fact")),
-                            intensity=float(item.get("intensity", 0.5)),
+                            content=extraction.content,
+                            user=extraction.user,
+                            memory_type=MemoryType(extraction.type),
+                            intensity=extraction.intensity,
                         )
                         if memory.content:  # Only add if there's content
                             memories.append(memory)
 
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse extraction response: {e}\nRaw: {raw}")
+            except (json.JSONDecodeError, ValueError) as e:
+                # Shouldn't happen with structured output, but log if it does
+                logger.error(f"Unexpected JSON parse error with structured output: {e}\nRaw: {raw}")
 
             # Store memories
             if memories:
