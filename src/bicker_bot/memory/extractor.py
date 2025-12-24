@@ -3,12 +3,23 @@
 import json
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 from google import genai
 from google.genai import types
+from pydantic import BaseModel, Field
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 from bicker_bot.memory.store import Memory, MemoryStore, MemoryType
+
+
+class MemoryExtraction(BaseModel):
+    """Schema for extracted memory from LLM."""
+
+    content: str
+    user: str | None = None
+    type: Literal["fact", "opinion", "interaction", "event"] = "fact"
+    intensity: float = Field(ge=0.0, le=1.0, default=0.5)
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +153,7 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                             memories.append(memory)
 
             except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse extraction response: {e}")
+                logger.warning(f"Failed to parse extraction response: {e}\nRaw: {raw}")
 
             # Store memories
             if memories:

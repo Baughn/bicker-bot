@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from bicker_bot.config import Config, get_bot_nicks
 from bicker_bot.core import (
+    BickerChecker,
     ContextBuilder,
     EngagementChecker,
     MessageRouter,
@@ -84,6 +85,7 @@ class Orchestrator:
         self._bot_selector = BotSelector(config.memory)
 
         self._engagement = EngagementChecker(google_key)
+        self._bicker_checker = BickerChecker(google_key)
         self._context_builder = ContextBuilder(google_key, self._memory_store)
         self._responder = ResponseGenerator(
             anthropic_key,
@@ -132,8 +134,9 @@ class Orchestrator:
         # Always add to router for context tracking
         await self._router.add_message(message)
 
-        # Ignore messages from our own bots (already added to router)
+        # Check if this is a bot message - might trigger bickering
         if self._irc and self._irc.is_bot_message(message.sender):
+            await self._maybe_bicker_response(message)
             return
 
         # Log received message
@@ -180,6 +183,61 @@ class Orchestrator:
 
         # Process the batch
         await self._process_batch(channel, messages)
+
+    async def _maybe_bicker_response(self, message: Message) -> None:
+        """Check if a bot message should trigger the other bot to respond.
+
+        Uses Gemini Flash to evaluate if the message warrants a comeback,
+        then applies decay based on consecutive bot messages.
+        """
+        channel = message.channel
+
+        # Get context and consecutive count
+        recent = await self._router.get_recent_messages(channel, count=10)
+        context = self._router.format_context(recent)
+        consecutive = await self._router.count_consecutive_bot_messages(
+            channel, self._bot_nicks
+        )
+
+        # Ask Flash for probability
+        bicker_result = await self._bicker_checker.check(
+            message=message.content,
+            sender=message.sender,
+            recent_context=context,
+        )
+
+        # Apply decay
+        decay = self._config.gate.decay_factor ** consecutive
+        final_prob = bicker_result.probability * decay
+
+        roll = random.random()
+        if roll >= final_prob:
+            logger.info(
+                f"BICKER: base={bicker_result.probability:.2f} decay={decay:.3f} "
+                f"final={final_prob:.3f} roll={roll:.3f} -> SKIP"
+            )
+            return
+
+        logger.info(
+            f"BICKER: base={bicker_result.probability:.2f} decay={decay:.3f} "
+            f"final={final_prob:.3f} roll={roll:.3f} -> RESPOND"
+        )
+
+        # The OTHER bot responds
+        if message.sender.lower() == self._config.irc.nick_merry.lower():
+            responding_bot = BotIdentity.HACHIMAN
+        else:
+            responding_bot = BotIdentity.MERRY
+
+        # Generate response (reuse existing pipeline)
+        result = await self._process_direct_addressed(
+            message, message.content, responding_bot
+        )
+
+        if result.responded and result.messages:
+            await self._send_responses(
+                channel, responding_bot, result.messages, message
+            )
 
     async def _process_batch(self, channel: str, messages: list[Message]) -> None:
         """Process a batch of buffered messages.

@@ -51,41 +51,48 @@ When calling ready_to_respond, provide a JSON summary with:
 
 
 # Tool definitions for Gemini
+RAG_SEARCH_DECLARATION = types.FunctionDeclaration(
+    name="rag_search",
+    description="Search the memory database for relevant past information about users, topics, or events",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "query": types.Schema(
+                type=types.Type.STRING,
+                description="Search query describing what information you need",
+            ),
+            "user": types.Schema(
+                type=types.Type.STRING,
+                description="Optional: filter to memories about a specific user",
+            ),
+        },
+        required=["query"],
+    ),
+)
+
+READY_TO_RESPOND_DECLARATION = types.FunctionDeclaration(
+    name="ready_to_respond",
+    description="Signal that you have gathered enough context and provide a summary",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "summary": types.Schema(
+                type=types.Type.STRING,
+                description="JSON summary of gathered context",
+            ),
+        },
+        required=["summary"],
+    ),
+)
+
+# Combined tool for early rounds (can search or finish)
 RAG_SEARCH_TOOL = types.Tool(
-    function_declarations=[
-        types.FunctionDeclaration(
-            name="rag_search",
-            description="Search the memory database for relevant past information about users, topics, or events",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "query": types.Schema(
-                        type=types.Type.STRING,
-                        description="Search query describing what information you need",
-                    ),
-                    "user": types.Schema(
-                        type=types.Type.STRING,
-                        description="Optional: filter to memories about a specific user",
-                    ),
-                },
-                required=["query"],
-            ),
-        ),
-        types.FunctionDeclaration(
-            name="ready_to_respond",
-            description="Signal that you have gathered enough context and provide a summary",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "summary": types.Schema(
-                        type=types.Type.STRING,
-                        description="JSON summary of gathered context",
-                    ),
-                },
-                required=["summary"],
-            ),
-        ),
-    ]
+    function_declarations=[RAG_SEARCH_DECLARATION, READY_TO_RESPOND_DECLARATION]
+)
+
+# Final round tool - only ready_to_respond available
+READY_ONLY_TOOL = types.Tool(
+    function_declarations=[READY_TO_RESPOND_DECLARATION]
 )
 
 
@@ -307,15 +314,54 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                 )
                 response = await chat.send_message(tool_results)
 
-        # If we exhausted rounds, force a summary
+        # If we exhausted rounds, force a final summary call
         if not result.summary:
-            logger.warning(f"Context builder exhausted {self.MAX_ROUNDS} rounds without summary")
-            result.summary = {
-                "key_facts": [],
-                "user_context": "Limited information available",
-                "topic_context": "General conversation",
-                "suggested_tone": "friendly",
-            }
+            logger.info(f"Context builder exhausted {self.MAX_ROUNDS} rounds, forcing summary")
+
+            # Make one final call with only ready_to_respond available
+            final_prompt = (
+                "You have completed your searches. You MUST now call ready_to_respond "
+                "with a summary of what you found. This is your only available action."
+            )
+
+            try:
+                final_response = await self._client.aio.models.generate_content(
+                    model=self._model,
+                    contents=[
+                        {"role": "user", "parts": [{"text": initial_prompt}]},
+                        {"role": "model", "parts": [{"text": "I'll gather context now."}]},
+                        {"role": "user", "parts": [{"text": final_prompt}]},
+                    ],
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=0.3,
+                        tools=[READY_ONLY_TOOL],
+                    ),
+                )
+
+                # Check for ready_to_respond call
+                if final_response.candidates and final_response.candidates[0].content.parts:
+                    for part in final_response.candidates[0].content.parts:
+                        if part.function_call and part.function_call.name == "ready_to_respond":
+                            try:
+                                summary_str = part.function_call.args.get("summary", "{}")
+                                result.summary = json.loads(summary_str)
+                            except json.JSONDecodeError:
+                                result.summary = {"raw": summary_str}
+                            break
+
+            except Exception as e:
+                logger.warning(f"Final summary call failed: {e}")
+
+            # If still no summary, use fallback
+            if not result.summary:
+                logger.warning("Context builder could not get summary, using fallback")
+                result.summary = {
+                    "key_facts": [],
+                    "user_context": "Limited information available",
+                    "topic_context": "General conversation",
+                    "suggested_tone": "friendly",
+                }
 
         # Log completion (for fallback path)
         logger.info(
