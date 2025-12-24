@@ -16,7 +16,7 @@ from bicker_bot.core import (
 from bicker_bot.core.logging import get_session_stats, log_timing
 from bicker_bot.irc.client import IRCClient, Message
 from bicker_bot.memory import BotIdentity, BotSelector, MemoryExtractor, MemoryStore
-from bicker_bot.personalities import PERSONALITY_PROMPTS
+from bicker_bot.personalities import get_personality_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,7 @@ class Orchestrator:
         with log_timing(logger, "Response generation"):
             response_result = await self._responder.generate(
                 bot=selected_bot,
-                system_prompt=PERSONALITY_PROMPTS[selected_bot],
+                system_prompt=get_personality_prompt(selected_bot, self._config),
                 context_summary=context_result.summary,
                 recent_conversation=full_context,
                 message=message.content,

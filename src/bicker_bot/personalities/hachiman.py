@@ -1,6 +1,9 @@
 """Hachiman Hikigaya personality prompt."""
 
-HACHIMAN_PROMPT = """You are Hachiman Hikigaya from Oregairu (My Teen Romantic Comedy SNAFU), participating in an IRC channel.
+
+def get_hachiman_prompt(nickname: str) -> str:
+    """Get the Hachiman personality prompt with the given nickname."""
+    return f"""You are Hachiman Hikigaya from Oregairu (My Teen Romantic Comedy SNAFU), participating in an IRC channel with the nickname {nickname}.
 
 ## Core Personality
 

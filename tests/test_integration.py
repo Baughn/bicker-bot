@@ -17,7 +17,7 @@ from bicker_bot.core import (
 )
 from bicker_bot.irc.client import Message
 from bicker_bot.memory import BotIdentity, BotSelector, Memory, MemoryExtractor, MemoryStore
-from bicker_bot.personalities import PERSONALITY_PROMPTS
+from bicker_bot.personalities import get_hachiman_prompt, get_merry_prompt
 
 # Load .env for tests
 load_dotenv()
@@ -97,7 +97,7 @@ class TestResponseIntegration:
         """Test generating a response as Hachiman."""
         result = await responder.generate(
             bot=BotIdentity.HACHIMAN,
-            system_prompt=PERSONALITY_PROMPTS[BotIdentity.HACHIMAN],
+            system_prompt=get_hachiman_prompt("TestHachi"),
             context_summary={"key_facts": [], "suggested_tone": "casual"},
             recent_conversation="[12:00] <Alice> What's a good book to read?",
             message="What's a good book to read?",
@@ -113,7 +113,7 @@ class TestResponseIntegration:
         """Test generating a response as Merry."""
         result = await responder.generate(
             bot=BotIdentity.MERRY,
-            system_prompt=PERSONALITY_PROMPTS[BotIdentity.MERRY],
+            system_prompt=get_merry_prompt("TestMerry"),
             context_summary={"key_facts": [], "suggested_tone": "energetic"},
             recent_conversation="[12:00] <Bob> I'm bored, what should I do?",
             message="I'm bored, what should I do?",
@@ -227,7 +227,7 @@ class TestPersonalityConsistency:
         """Test that Hachiman maintains cynical personality."""
         result = await responder.generate(
             bot=BotIdentity.HACHIMAN,
-            system_prompt=PERSONALITY_PROMPTS[BotIdentity.HACHIMAN],
+            system_prompt=get_hachiman_prompt("TestHachi"),
             context_summary={"suggested_tone": "cynical"},
             recent_conversation="[12:00] <Eve> I just made friends with everyone in class!",
             message="I just made friends with everyone in class!",
@@ -243,7 +243,7 @@ class TestPersonalityConsistency:
         """Test that Merry maintains direct personality."""
         result = await responder.generate(
             bot=BotIdentity.MERRY,
-            system_prompt=PERSONALITY_PROMPTS[BotIdentity.MERRY],
+            system_prompt=get_merry_prompt("TestMerry"),
             context_summary={"suggested_tone": "encouraging"},
             recent_conversation="[12:00] <Frank> I'm thinking about maybe trying to...",
             message="I'm thinking about maybe trying to learn programming",
