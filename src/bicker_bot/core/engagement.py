@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from google import genai
 from google.genai import types
 
-from bicker_bot.core.logging import get_session_stats
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,15 @@ Detected factors: {factors_text}
 Should the bots respond to this? (yes/no)"""
 
         try:
+            # Log LLM input
+            log_llm_call(
+                operation="Engagement Check",
+                model=self._model,
+                system_prompt=ENGAGEMENT_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                config={"temperature": 0.1, "max_output_tokens": 10},
+            )
+
             response = await self._client.aio.models.generate_content(
                 model=self._model,
                 contents=user_prompt,
@@ -95,6 +104,12 @@ Should the bots respond to this? (yes/no)"""
             )
 
             raw = response.text.strip().lower()
+
+            # Log LLM response
+            log_llm_response(
+                operation="Engagement Check",
+                response_text=raw,
+            )
             is_engaged = raw.startswith("yes")
 
             # Log the decision

@@ -11,6 +11,7 @@ import chromadb
 from chromadb.config import Settings
 
 from bicker_bot.config import MemoryConfig
+from bicker_bot.core.logging import log_rag_query, log_rag_results
 from bicker_bot.memory.embeddings import LocalEmbeddingFunction
 
 logger = logging.getLogger(__name__)
@@ -183,6 +184,13 @@ class BotSelector:
         Uses embedding similarity to find which bot's personality
         is most relevant to the message content.
         """
+        # Log RAG query
+        log_rag_query(
+            operation="Bot Selection",
+            query=message,
+            limit=4,
+        )
+
         # Query for similar personality embeddings
         query_embedding = self._embedding_fn.embed_query(message)
 
@@ -196,6 +204,16 @@ class BotSelector:
         scores = {BotIdentity.MERRY: 0.0, BotIdentity.HACHIMAN: 0.0}
 
         if results["ids"] and results["ids"][0]:
+            # Log RAG results
+            log_rag_results(
+                operation="Bot Selection",
+                results=[
+                    {"id": doc_id, "bot": results["metadatas"][0][i]["bot"], "type": results["metadatas"][0][i].get("type", "base")}
+                    for i, doc_id in enumerate(results["ids"][0])
+                ],
+                distances=results["distances"][0] if results["distances"] else None,
+            )
+
             for i, doc_id in enumerate(results["ids"][0]):
                 metadata = results["metadatas"][0][i]
                 distance = results["distances"][0][i]

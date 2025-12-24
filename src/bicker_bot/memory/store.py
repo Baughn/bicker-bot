@@ -13,6 +13,7 @@ from chromadb.config import Settings
 from pydantic import BaseModel, Field
 
 from bicker_bot.config import MemoryConfig
+from bicker_bot.core.logging import log_rag_query, log_rag_results
 from bicker_bot.memory.embeddings import LocalEmbeddingFunction
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,18 @@ class MemoryStore:
         elif len(where_clauses) > 1:
             where = {"$and": where_clauses}
 
+        # Log RAG query
+        log_rag_query(
+            operation="Memory Search",
+            query=query,
+            filters={
+                "user": user,
+                "min_intensity": min_intensity,
+                "memory_types": [t.value for t in memory_types] if memory_types else None,
+            },
+            limit=limit,
+        )
+
         # Query using the embedding function's query method
         query_embedding = self._embedding_fn.embed_query(query)
 
@@ -210,6 +223,13 @@ class MemoryStore:
         for i, sr in enumerate(search_results[:3]):
             content_preview = sr.memory.content[:50] + "..." if len(sr.memory.content) > 50 else sr.memory.content
             logger.debug(f"  #{i+1}: sim={sr.similarity:.3f} '{content_preview}'")
+
+        # Log RAG results for AI debug
+        log_rag_results(
+            operation="Memory Search",
+            results=[sr.memory for sr in search_results],
+            distances=[sr.distance for sr in search_results],
+        )
 
         return search_results
 

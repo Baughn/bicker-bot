@@ -1,11 +1,174 @@
 """Logging utilities for bicker-bot."""
 
+import json
 import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Generator
+
+# AI debug mode flag
+_ai_debug: bool = False
+_ai_debug_lock = Lock()
+
+
+def set_ai_debug(enabled: bool) -> None:
+    """Enable or disable AI debug logging."""
+    global _ai_debug
+    with _ai_debug_lock:
+        _ai_debug = enabled
+
+
+def is_ai_debug() -> bool:
+    """Check if AI debug logging is enabled."""
+    with _ai_debug_lock:
+        return _ai_debug
+
+
+# Dedicated logger for AI debug output
+_ai_logger = logging.getLogger("bicker_bot.ai_debug")
+
+
+def log_llm_call(
+    operation: str,
+    model: str,
+    system_prompt: str | None = None,
+    user_prompt: str | None = None,
+    messages: list[dict[str, Any]] | None = None,
+    tools: list[Any] | None = None,
+    config: dict[str, Any] | None = None,
+) -> None:
+    """Log the input to an LLM call when AI debug is enabled."""
+    if not is_ai_debug():
+        return
+
+    parts = [
+        f"\n{'='*80}",
+        f"LLM CALL: {operation}",
+        f"Model: {model}",
+        f"{'='*80}",
+    ]
+
+    if system_prompt:
+        parts.append(f"\n--- SYSTEM PROMPT ---\n{system_prompt}")
+
+    if user_prompt:
+        parts.append(f"\n--- USER PROMPT ---\n{user_prompt}")
+
+    if messages:
+        parts.append(f"\n--- MESSAGES ---\n{json.dumps(messages, indent=2, default=str)}")
+
+    if tools:
+        parts.append(f"\n--- TOOLS ---\n{_format_tools(tools)}")
+
+    if config:
+        parts.append(f"\n--- CONFIG ---\n{json.dumps(config, indent=2, default=str)}")
+
+    _ai_logger.info("\n".join(parts))
+
+
+def log_llm_response(
+    operation: str,
+    response_text: str | None = None,
+    tool_calls: list[Any] | None = None,
+    usage: dict[str, Any] | None = None,
+    raw_response: Any = None,
+) -> None:
+    """Log the output from an LLM call when AI debug is enabled."""
+    if not is_ai_debug():
+        return
+
+    parts = [
+        f"\n{'-'*80}",
+        f"LLM RESPONSE: {operation}",
+        f"{'-'*80}",
+    ]
+
+    if response_text:
+        parts.append(f"\n--- RESPONSE TEXT ---\n{response_text}")
+
+    if tool_calls:
+        parts.append(f"\n--- TOOL CALLS ---\n{json.dumps(tool_calls, indent=2, default=str)}")
+
+    if usage:
+        parts.append(f"\n--- USAGE ---\n{json.dumps(usage, indent=2, default=str)}")
+
+    if raw_response and not response_text and not tool_calls:
+        parts.append(f"\n--- RAW RESPONSE ---\n{raw_response}")
+
+    parts.append(f"{'='*80}\n")
+
+    _ai_logger.info("\n".join(parts))
+
+
+def log_rag_query(
+    operation: str,
+    query: str,
+    filters: dict[str, Any] | None = None,
+    limit: int | None = None,
+) -> None:
+    """Log a RAG query when AI debug is enabled."""
+    if not is_ai_debug():
+        return
+
+    parts = [
+        f"\n{'='*80}",
+        f"RAG QUERY: {operation}",
+        f"{'='*80}",
+        f"\n--- QUERY ---\n{query}",
+    ]
+
+    if filters:
+        parts.append(f"\n--- FILTERS ---\n{json.dumps(filters, indent=2, default=str)}")
+
+    if limit is not None:
+        parts.append(f"\n--- LIMIT ---\n{limit}")
+
+    _ai_logger.info("\n".join(parts))
+
+
+def log_rag_results(
+    operation: str,
+    results: list[Any],
+    distances: list[float] | None = None,
+) -> None:
+    """Log RAG results when AI debug is enabled."""
+    if not is_ai_debug():
+        return
+
+    parts = [
+        f"\n{'-'*80}",
+        f"RAG RESULTS: {operation} ({len(results)} results)",
+        f"{'-'*80}",
+    ]
+
+    for i, result in enumerate(results):
+        distance_str = f" (distance: {distances[i]:.4f})" if distances and i < len(distances) else ""
+        if hasattr(result, "content"):
+            parts.append(f"\n[{i+1}]{distance_str}\n{result.content}")
+        elif isinstance(result, dict):
+            parts.append(f"\n[{i+1}]{distance_str}\n{json.dumps(result, indent=2, default=str)}")
+        else:
+            parts.append(f"\n[{i+1}]{distance_str}\n{result}")
+
+    parts.append(f"{'='*80}\n")
+
+    _ai_logger.info("\n".join(parts))
+
+
+def _format_tools(tools: list[Any]) -> str:
+    """Format tools for logging."""
+    result = []
+    for tool in tools:
+        if hasattr(tool, "function_declarations"):
+            for func in tool.function_declarations:
+                result.append(f"- {func.name}: {func.description}")
+        elif hasattr(tool, "name"):
+            result.append(f"- {tool.name}")
+        else:
+            result.append(f"- {tool}")
+    return "\n".join(result) if result else str(tools)
 
 
 @dataclass

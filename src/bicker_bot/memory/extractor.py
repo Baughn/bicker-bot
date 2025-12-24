@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from google import genai
 from google.genai import types
 
-from bicker_bot.core.logging import get_session_stats
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 from bicker_bot.memory.store import Memory, MemoryStore, MemoryType
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,15 @@ Extract any memorable facts from this conversation. Focus on what humans reveale
 Return a JSON array of memory objects, or [] if nothing is worth remembering."""
 
         try:
+            # Log LLM input
+            log_llm_call(
+                operation="Memory Extraction",
+                model=self._model,
+                system_prompt=EXTRACTION_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                config={"temperature": 0.2, "max_output_tokens": 1000},
+            )
+
             response = await self._client.aio.models.generate_content(
                 model=self._model,
                 contents=prompt,
@@ -104,6 +113,12 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
             )
 
             raw = response.text.strip()
+
+            # Log LLM response
+            log_llm_response(
+                operation="Memory Extraction",
+                response_text=raw,
+            )
 
             # Parse JSON response
             # Handle potential markdown code blocks

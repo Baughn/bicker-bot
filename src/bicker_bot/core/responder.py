@@ -8,7 +8,7 @@ import anthropic
 from google import genai
 from google.genai import types
 
-from bicker_bot.core.logging import get_session_stats
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 from bicker_bot.memory import BotIdentity
 
 logger = logging.getLogger(__name__)
@@ -120,6 +120,15 @@ Do not use markdown formatting. Do not prefix your response with your name."""
     ) -> ResponseResult:
         """Generate a response using Claude Opus."""
         try:
+            # Log LLM input
+            log_llm_call(
+                operation="Response Generation (Hachiman)",
+                model=self._opus_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                config={"max_tokens": 500},
+            )
+
             response = await self._anthropic.messages.create(
                 model=self._opus_model,
                 max_tokens=500,
@@ -128,6 +137,16 @@ Do not use markdown formatting. Do not prefix your response with your name."""
             )
 
             content = response.content[0].text
+
+            # Log LLM response
+            log_llm_response(
+                operation="Response Generation (Hachiman)",
+                response_text=content,
+                usage={
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                },
+            )
 
             # Log response with token usage
             logger.info(
@@ -164,6 +183,15 @@ Do not use markdown formatting. Do not prefix your response with your name."""
     ) -> ResponseResult:
         """Generate a response using Gemini Pro."""
         try:
+            # Log LLM input
+            log_llm_call(
+                operation="Response Generation (Merry)",
+                model=self._gemini_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                config={"temperature": 0.8, "max_output_tokens": 500},
+            )
+
             response = await self._gemini.aio.models.generate_content(
                 model=self._gemini_model,
                 contents=user_prompt,
@@ -175,6 +203,12 @@ Do not use markdown formatting. Do not prefix your response with your name."""
             )
 
             content = response.text
+
+            # Log LLM response
+            log_llm_response(
+                operation="Response Generation (Merry)",
+                response_text=content,
+            )
 
             # Log response (Gemini doesn't expose token counts the same way)
             logger.info(f"RESPONSE [merry]: model={self._gemini_model}")

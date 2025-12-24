@@ -8,7 +8,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from bicker_bot.core.logging import get_session_stats
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
 from bicker_bot.memory import Memory, MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -169,6 +169,16 @@ Latest message from {sender}: "{message}"
 {hi_memories_str}
 Analyze this and gather any additional context needed. Use rag_search if you need more information, or call ready_to_respond if you have enough."""
 
+        # Log LLM input
+        log_llm_call(
+            operation="Context Build (initial)",
+            model=self._model,
+            system_prompt=CONTEXT_SYSTEM_PROMPT,
+            user_prompt=initial_prompt,
+            tools=[RAG_SEARCH_TOOL],
+            config={"temperature": 0.3},
+        )
+
         # Create chat session
         chat = self._client.aio.chats.create(
             model=self._model,
@@ -194,6 +204,19 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
             for part in response.candidates[0].content.parts:
                 if part.function_call:
                     tool_calls.append(part.function_call)
+
+            # Log the response from this round
+            response_text = None
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "text") and part.text:
+                    response_text = part.text
+                    break
+
+            log_llm_response(
+                operation=f"Context Build (round {result.rounds})",
+                response_text=response_text,
+                tool_calls=[{"name": tc.name, "args": dict(tc.args)} for tc in tool_calls] if tool_calls else None,
+            )
 
             if not tool_calls:
                 # No tool calls, might have a text response
@@ -251,6 +274,12 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
 
             # Send tool results back
             if tool_results:
+                # Log the tool results being sent
+                log_llm_call(
+                    operation=f"Context Build (round {result.rounds + 1} - tool results)",
+                    model=self._model,
+                    user_prompt=f"Tool results: {len(tool_results)} function responses",
+                )
                 response = await chat.send_message(tool_results)
 
         # If we exhausted rounds, force a summary

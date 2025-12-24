@@ -49,7 +49,7 @@ def load_api_keys_from_env(config: Config) -> Config:
     return config
 
 
-async def async_main(config_path: str | None = None, debug: bool = False) -> None:
+async def async_main(config_path: str | None = None, debug: bool = False, debug_ai: bool = False) -> None:
     """Async main entry point."""
     setup_logging(debug)
     logger = logging.getLogger(__name__)
@@ -60,6 +60,12 @@ async def async_main(config_path: str | None = None, debug: bool = False) -> Non
     # Load configuration
     config = load_config(config_path)
     config = load_api_keys_from_env(config)
+
+    # Set global AI debug flag
+    if debug_ai:
+        from bicker_bot.core.logging import set_ai_debug
+        set_ai_debug(True)
+        logger.info("AI debug logging enabled - full LLM/RAG inputs and outputs will be logged")
 
     logger.info("Starting Bicker-Bot...")
     logger.info(f"Merry nick: {config.irc.nick_merry}")
@@ -96,10 +102,15 @@ def main() -> None:
         action="store_true",
         help="Enable debug logging",
     )
+    parser.add_argument(
+        "--debug-ai",
+        action="store_true",
+        help="Log full inputs and outputs for all LLM and RAG calls",
+    )
 
     args = parser.parse_args()
 
-    asyncio.run(async_main(config_path=args.config, debug=args.debug))
+    asyncio.run(async_main(config_path=args.config, debug=args.debug, debug_ai=args.debug_ai))
 
 
 if __name__ == "__main__":
