@@ -206,7 +206,11 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0.3,
+                max_output_tokens=8192,
                 tools=[RAG_SEARCH_TOOL],
+                thinking_config=types.ThinkingConfig(
+                    thinkingLevel=types.ThinkingLevel.LOW,
+                ),
             ),
         )
 

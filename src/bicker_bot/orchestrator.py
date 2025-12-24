@@ -85,15 +85,28 @@ class Orchestrator:
 
         self._engagement = EngagementChecker(google_key)
         self._context_builder = ContextBuilder(google_key, self._memory_store)
-        self._responder = ResponseGenerator(anthropic_key, google_key)
+        self._responder = ResponseGenerator(
+            anthropic_key,
+            google_key,
+            on_error_notify=self._notify_error,
+        )
         self._extractor = MemoryExtractor(google_key, self._memory_store)
 
         self._irc: IRCClient | None = None
+        self._error_notify_channel: str | None = None  # Set after IRC connects
 
         # Message buffering: wait for 2s of silence before processing
         self._channel_buffers: dict[str, ChannelBuffer] = {}
 
         logger.info("Orchestrator initialized")
+
+    async def _notify_error(self, message: str) -> None:
+        """Send an error notification to IRC (pings Baughn)."""
+        if self._irc and self._error_notify_channel:
+            try:
+                await self._irc.send_as_merry(self._error_notify_channel, message)
+            except Exception as e:
+                logger.error(f"Failed to send error notification: {e}")
 
     async def start(self) -> None:
         """Start the IRC connection and begin processing."""
@@ -104,6 +117,10 @@ class Orchestrator:
 
         logger.info("Connecting to IRC...")
         await self._irc.connect()
+
+        # Set error notify channel to first configured channel
+        if self._config.irc.channels:
+            self._error_notify_channel = self._config.irc.channels[0]
         logger.info("Connected! Running forever...")
         await self._irc.run_forever()
 

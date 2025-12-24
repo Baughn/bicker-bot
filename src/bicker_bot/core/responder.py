@@ -1,7 +1,9 @@
 """Response generator using Opus or Gemini Pro."""
 
+import asyncio
 import json
 import logging
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +26,10 @@ class ResponseResult:
     model_used: str = ""
 
 
+# Callback type for error notifications
+ErrorNotifyCallback = Callable[[str], Coroutine[Any, Any, None]] | None
+
+
 class ResponseGenerator:
     """Generates responses using either Claude Opus or Gemini Pro."""
 
@@ -33,6 +39,7 @@ class ResponseGenerator:
         google_api_key: str,
         opus_model: str = "claude-opus-4-5-20251101",
         gemini_model: str = "gemini-3-pro-preview",
+        on_error_notify: ErrorNotifyCallback = None,
     ):
         """Initialize the response generator.
 
@@ -41,11 +48,13 @@ class ResponseGenerator:
             google_api_key: Google AI API key
             opus_model: Claude model for Hachiman
             gemini_model: Gemini model for Merry
+            on_error_notify: Callback to notify on critical errors (e.g., ping on IRC)
         """
         self._anthropic = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
         self._gemini = genai.Client(api_key=google_api_key)
         self._opus_model = opus_model
         self._gemini_model = gemini_model
+        self._on_error_notify = on_error_notify
 
     async def generate(
         self,
@@ -153,15 +162,28 @@ or for no response: []"""
                 model=self._opus_model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                config={"max_tokens": 500},
+                config={"max_tokens": 8192},
             )
 
             response = await self._anthropic.messages.create(
                 model=self._opus_model,
-                max_tokens=500,
+                max_tokens=8192,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )
+
+            # Check for max_tokens stop reason
+            if response.stop_reason == "max_tokens":
+                logger.error(
+                    f"CLAUDE_MAX_TOKENS: Model {self._opus_model} hit token limit. "
+                    f"Output may be truncated."
+                )
+                if self._on_error_notify:
+                    asyncio.create_task(
+                        self._on_error_notify(
+                            f"Baughn: Claude {self._opus_model} hit max_tokens!"
+                        )
+                    )
 
             raw_content = response.content[0].text if response.content else None
             messages = self._parse_response_json(raw_content)
@@ -218,7 +240,7 @@ or for no response: []"""
                 model=self._gemini_model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                config={"temperature": 0.8, "max_output_tokens": 500},
+                config={"temperature": 0.8, "max_output_tokens": 8192, "thinking": "LOW"},
             )
 
             response = await self._gemini.aio.models.generate_content(
@@ -227,9 +249,27 @@ or for no response: []"""
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     temperature=0.8,  # Slightly more creative for Merry
-                    max_output_tokens=500,
+                    max_output_tokens=8192,
+                    thinking_config=types.ThinkingConfig(
+                        thinkingLevel=types.ThinkingLevel.LOW,
+                    ),
                 ),
             )
+
+            # Check for MAX_TOKENS finish reason (thinking used all budget)
+            if response.candidates:
+                finish_reason = response.candidates[0].finish_reason
+                if finish_reason == types.FinishReason.MAX_TOKENS:
+                    logger.error(
+                        f"GEMINI_MAX_TOKENS: Model {self._gemini_model} hit token limit "
+                        f"with no output. Thinking may have consumed entire budget."
+                    )
+                    if self._on_error_notify:
+                        asyncio.create_task(
+                            self._on_error_notify(
+                                f"Baughn: Gemini {self._gemini_model} hit MAX_TOKENS with no output!"
+                            )
+                        )
 
             raw_content = response.text if response else None
             messages = self._parse_response_json(raw_content)
