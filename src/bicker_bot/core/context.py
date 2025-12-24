@@ -79,7 +79,7 @@ RAG_SEARCH_TOOL = types.Tool(
 class ContextResult:
     """Result of context gathering."""
 
-    summary: dict[str, Any]
+    summary: dict[str, Any] = field(default_factory=dict)
     search_queries: list[str] = field(default_factory=list)
     memories_found: list[Memory] = field(default_factory=list)
     rounds: int = 0
