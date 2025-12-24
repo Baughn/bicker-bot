@@ -31,7 +31,7 @@ class ResponseGenerator:
         anthropic_api_key: str,
         google_api_key: str,
         opus_model: str = "claude-opus-4-5-20251101",
-        gemini_model: str = "gemini-3-pro",
+        gemini_model: str = "gemini-3-pro-preview",
     ):
         """Initialize the response generator.
 

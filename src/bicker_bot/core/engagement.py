@@ -37,7 +37,7 @@ class EngagementResult:
 class EngagementChecker:
     """Checks if a message represents genuine human engagement."""
 
-    def __init__(self, api_key: str, model: str = "gemini-3-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-3-flash-preview"):
         """Initialize the engagement checker.
 
         Args:

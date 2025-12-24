@@ -86,6 +86,9 @@ def load_config(config_path: Path | str | None = None) -> Config:
         with open(config_path) as f:
             yaml_config = yaml.safe_load(f) or {}
 
+    # Filter out None values from YAML (e.g., "llm:" with no values parses as None)
+    yaml_config = {k: v for k, v in yaml_config.items() if v is not None}
+
     # Merge YAML config into environment-based config
     # pydantic-settings handles env vars automatically
     return Config(**yaml_config)

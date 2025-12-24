@@ -55,7 +55,7 @@ class MemoryExtractor:
         self,
         api_key: str,
         memory_store: MemoryStore,
-        model: str = "gemini-3-flash",
+        model: str = "gemini-3-flash-preview",
     ):
         """Initialize the memory extractor.
 

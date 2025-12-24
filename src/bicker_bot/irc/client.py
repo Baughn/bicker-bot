@@ -126,14 +126,10 @@ class IRCClient:
     on_message: MessageHandler | None = None
     _merry: BotClient | None = field(default=None, init=False)
     _hachiman: BotClient | None = field(default=None, init=False)
-    _pool: pydle.ClientPool | None = field(default=None, init=False)
 
     async def connect(self) -> None:
         """Connect both bots to IRC."""
         irc_cfg = self.config.irc
-
-        # Create client pool for managing both connections
-        self._pool = pydle.ClientPool()
 
         # Get NickServ passwords if set
         merry_pass = (
@@ -162,21 +158,25 @@ class IRCClient:
             nickserv_password=hachi_pass,
         )
 
-        # Connect both to the pool
-        await self._pool.connect(
-            self._merry,
-            hostname=irc_cfg.server,
-            port=irc_cfg.port,
-            tls=irc_cfg.ssl,
-        )
-        await self._pool.connect(
-            self._hachiman,
+        # Connect clients sequentially with delay to avoid rate limiting
+        # (pydle.ClientPool doesn't work with existing event loops)
+        logger.info(f"Connecting {irc_cfg.nick_merry}...")
+        await self._merry.connect(
             hostname=irc_cfg.server,
             port=irc_cfg.port,
             tls=irc_cfg.ssl,
         )
 
-        # Wait for both to be ready
+        await asyncio.sleep(2)  # Delay to avoid connection rate limits
+
+        logger.info(f"Connecting {irc_cfg.nick_hachiman}...")
+        await self._hachiman.connect(
+            hostname=irc_cfg.server,
+            port=irc_cfg.port,
+            tls=irc_cfg.ssl,
+        )
+
+        # Wait for both to be ready (joined channels)
         await asyncio.gather(
             self._merry.wait_ready(),
             self._hachiman.wait_ready(),
@@ -185,10 +185,13 @@ class IRCClient:
         logger.info("Both bots connected and ready")
 
     async def run_forever(self) -> None:
-        """Run both bots until disconnected."""
-        if self._pool is None:
+        """Run until both bots disconnect."""
+        if self._merry is None or self._hachiman is None:
             raise RuntimeError("Not connected. Call connect() first.")
-        await self._pool.handle_forever()
+        # pydle already starts handle_forever() as a background task during connect()
+        # We just need to wait until the clients disconnect
+        while self._merry.connected or self._hachiman.connected:
+            await asyncio.sleep(1)
 
     async def send_as_merry(self, channel: str, content: str) -> None:
         """Send a message as Merry."""

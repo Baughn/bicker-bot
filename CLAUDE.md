@@ -1,6 +1,6 @@
 # Bicker-Bot Architecture
 
-Two AI bots (Merry Nightmare / Gemini 3 Pro and Hachiman Hikigaya / Claude Opus 4.5) that bicker like siblings on IRC.
+Two AI bots (Merry Nightmare / Gemini 3 Pro Preview and Hachiman Hikigaya / Claude Opus 4.5) that bicker like siblings on IRC.
 
 ## High-Level Architecture
 
@@ -107,8 +107,28 @@ Gemini's tool calling uses a different structure than Anthropic. See `core/conte
 ### 7. Async Chat Sessions
 The context builder uses `client.aio.chats.create()` for multi-turn tool use. This maintains conversation state across tool calls.
 
-### 8. pydle Client Pool
-Both bots connect via a shared `pydle.ClientPool()`. This is important for proper event loop handling. Don't try to run them as independent asyncio tasks.
+### 8. pydle and asyncio
+**Do NOT use `pydle.ClientPool`** - its `handle_forever()` calls `asyncio.run()` internally, which crashes when there's already a running event loop. Instead:
+- Connect each client directly with `await client.connect()`
+- Add a delay between connections to avoid IRC rate limiting
+- Let pydle's internal background task (started automatically in `connect()`) handle the read loop
+- In `run_forever()`, just poll `client.connected` - don't call `handle_forever()` again
+
+### 9. YAML Config Sections
+YAML parses a section with only comments as `None`, not `{}`:
+```yaml
+llm:
+  # comments only, no actual values
+```
+This causes pydantic validation errors. The `load_config()` function filters out `None` values before passing to Config.
+
+### 10. Gemini Model Names
+The preview models require the `-preview` suffix:
+- `gemini-3-flash-preview` (not `gemini-3-flash`)
+- `gemini-3-pro-preview` (not `gemini-3-pro`)
+
+### 11. Nomic Embed Dependencies
+The `nomic-ai/nomic-embed-text-v1.5` model requires the `einops` package, which isn't automatically pulled in by sentence-transformers.
 
 ## Configuration
 
@@ -142,7 +162,7 @@ uv run pytest tests/ -v
 
 ## Bot Personalities
 
-### Merry (Gemini 3 Pro)
+### Merry (Gemini 3 Pro Preview)
 - Direct, action-oriented dream demon
 - Frustrated by overthinking
 - "Just DO it already!"
