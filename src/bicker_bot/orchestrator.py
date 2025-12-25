@@ -14,6 +14,7 @@ from bicker_bot.core import (
     MessageRouter,
     ResponseGate,
     ResponseGenerator,
+    WebFetcher,
 )
 from bicker_bot.core.logging import get_session_stats, log_timing
 from bicker_bot.irc.client import IRCClient, Message
@@ -86,10 +87,14 @@ class Orchestrator:
 
         self._engagement = EngagementChecker(google_key)
         self._bicker_checker = BickerChecker(google_key)
-        self._context_builder = ContextBuilder(google_key, self._memory_store)
+        self._web_fetcher = WebFetcher()
+        self._context_builder = ContextBuilder(
+            google_key, self._memory_store, web_fetcher=self._web_fetcher
+        )
         self._responder = ResponseGenerator(
             anthropic_key,
             google_key,
+            web_fetcher=self._web_fetcher,
             on_error_notify=self._notify_error,
         )
         self._extractor = MemoryExtractor(google_key, self._memory_store)
@@ -357,6 +362,9 @@ class Orchestrator:
 
         # Skip gate and engagement for direct addresses
 
+        # Extract URLs from message for web fetching
+        detected_urls = self._web_fetcher.extract_urls_from_text(combined_content)
+
         # Build context
         all_recent = await self._router.get_recent_messages(channel, count=30)
         full_context = self._router.format_context(all_recent)
@@ -377,6 +385,7 @@ class Orchestrator:
                 high_intensity_memories=high_intensity,
                 bot_identity=forced_bot,
                 bot_nickname=bot_nickname,
+                detected_urls=detected_urls,
             )
 
         # Generate response
@@ -388,6 +397,7 @@ class Orchestrator:
                 recent_conversation=full_context,
                 message=combined_content,
                 sender=message.sender,
+                detected_urls=detected_urls,
             )
 
         pipeline_elapsed = (time.perf_counter() - pipeline_start) * 1000
@@ -473,6 +483,9 @@ class Orchestrator:
                 selection = self._bot_selector.select(message.content)
                 selected_bot = selection.selected
 
+        # Extract URLs from message for web fetching
+        detected_urls = self._web_fetcher.extract_urls_from_text(message.content)
+
         # Step 4: Build context
         all_recent = await self._router.get_recent_messages(channel, count=30)
         full_context = self._router.format_context(all_recent)
@@ -494,6 +507,7 @@ class Orchestrator:
                 high_intensity_memories=high_intensity,
                 bot_identity=selected_bot,
                 bot_nickname=bot_nickname,
+                detected_urls=detected_urls,
             )
 
         # Step 5: Generate response
@@ -505,6 +519,7 @@ class Orchestrator:
                 recent_conversation=full_context,
                 message=message.content,
                 sender=message.sender,
+                detected_urls=detected_urls,
             )
 
         # Log pipeline completion

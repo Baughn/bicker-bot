@@ -8,7 +8,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field, RootModel
 
-from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 from bicker_bot.memory.store import Memory, MemoryStore, MemoryType
 
 
@@ -128,6 +128,16 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                     response_mime_type="application/json",
                     response_json_schema=MemoryExtractionList.model_json_schema(),
                 ),
+            )
+
+            # Log round summary (always on)
+            usage = response.usage_metadata if response else None
+            log_llm_round(
+                component="extractor",
+                model=self._model,
+                round_num=1,
+                tokens_in=usage.prompt_token_count if usage else None,
+                tokens_out=usage.candidates_token_count if usage else None,
             )
 
             raw = response.text.strip()

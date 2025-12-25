@@ -257,6 +257,40 @@ def reset_session_stats() -> None:
         _session_stats = SessionStats()
 
 
+# Dedicated logger for LLM round summaries (always on)
+_llm_logger = logging.getLogger("bicker_bot.llm")
+
+
+def log_llm_round(
+    component: str,
+    model: str,
+    round_num: int,
+    tokens_in: int | None,
+    tokens_out: int | None,
+    tools_called: list[str] | None = None,
+    stop_reason: str | None = None,
+) -> None:
+    """Log a summary of an LLM round (always on).
+
+    Args:
+        component: Which component made the call (e.g., "context", "responder/hachiman")
+        model: Model name used
+        round_num: Round number in multi-turn tool calling (0-indexed)
+        tokens_in: Input token count (None if unavailable)
+        tokens_out: Output token count (None if unavailable)
+        tools_called: List of tool names called in this round
+        stop_reason: Stop reason (for Claude: end_turn, tool_use, etc.)
+    """
+    tools_str = f" tools={tools_called}" if tools_called else ""
+    tokens_str = f"in={tokens_in or '?'} out={tokens_out or '?'}"
+    stop_str = f" stop={stop_reason}" if stop_reason else ""
+
+    _llm_logger.info(
+        f"LLM_ROUND [{component}] model={model} round={round_num} "
+        f"{tokens_str}{tools_str}{stop_str}"
+    )
+
+
 @contextmanager
 def log_timing(
     logger: logging.Logger, operation: str

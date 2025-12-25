@@ -8,7 +8,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
-from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,16 @@ What is the probability (0-100) that the bots should respond?"""
                     response_mime_type="application/json",
                     response_json_schema=EngagementResponse.model_json_schema(),
                 ),
+            )
+
+            # Log round summary (always on)
+            usage = response.usage_metadata if response else None
+            log_llm_round(
+                component="engagement",
+                model=self._model,
+                round_num=1,
+                tokens_in=usage.prompt_token_count if usage else None,
+                tokens_out=usage.candidates_token_count if usage else None,
             )
 
             raw = response.text or ""

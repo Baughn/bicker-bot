@@ -1,5 +1,6 @@
 """Context builder using Gemini Flash with RAG tools."""
 
+import base64
 import json
 import logging
 from dataclasses import dataclass, field
@@ -8,7 +9,8 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
+from bicker_bot.core.web import WebFetcher, WebPageResult
 from bicker_bot.memory import BotIdentity, Memory, MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -21,23 +23,35 @@ BOT_DESCRIPTIONS = {
 }
 
 
-def get_context_system_prompt(bot_nickname: str, bot_identity: BotIdentity) -> str:
+def get_context_system_prompt(
+    bot_nickname: str, bot_identity: BotIdentity, has_web_fetcher: bool = False
+) -> str:
     """Generate context system prompt with bot identity."""
     bot_description = BOT_DESCRIPTIONS.get(bot_identity, "an IRC chatbot")
+
+    if has_web_fetcher:
+        tools_section = """You have access to three tools:
+1. rag_search - Search the memory database for relevant past information
+2. fetch_webpage - Fetch and read a webpage (use when URLs are shared in the conversation)
+3. ready_to_respond - Signal that you have enough context"""
+    else:
+        tools_section = """You have access to two tools:
+1. rag_search - Search the memory database for relevant past information
+2. ready_to_respond - Signal that you have enough context"""
+
     return f"""You are a context gatherer for {bot_nickname}, an IRC chatbot.
 
 {bot_nickname} is {bot_description}.
 
 Your job is to prepare context for {bot_nickname}'s response.
 
-You have access to two tools:
-1. rag_search - Search the memory database for relevant past information
-2. ready_to_respond - Signal that you have enough context
+{tools_section}
 
 Strategy:
 1. Analyze the conversation and latest message
 2. If you need information about users, topics, or past events, use rag_search
-3. When you have sufficient context (or after 3 searches), call ready_to_respond with a summary
+3. If someone shared a URL and understanding it would help, use fetch_webpage
+4. When you have sufficient context (or after 3 tool uses), call ready_to_respond with a summary
 
 The summary should be concise bullet points of relevant context for the responding bot.
 Do NOT generate the actual response - just gather context.
@@ -85,9 +99,41 @@ READY_TO_RESPOND_DECLARATION = types.FunctionDeclaration(
     ),
 )
 
-# Combined tool for early rounds (can search or finish)
+FETCH_WEBPAGE_DECLARATION = types.FunctionDeclaration(
+    name="fetch_webpage",
+    description=(
+        "Fetch and read the content of a webpage. Returns the page content as markdown text, "
+        "with any images included. Use this when someone shares a URL and you need to understand "
+        "what's on the page to provide relevant context."
+    ),
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "url": types.Schema(
+                type=types.Type.STRING,
+                description="The full URL to fetch (must start with http:// or https://)",
+            ),
+            "include_images": types.Schema(
+                type=types.Type.BOOLEAN,
+                description="Whether to include images from the page (default: true)",
+            ),
+        },
+        required=["url"],
+    ),
+)
+
+# Combined tool for early rounds (can search, fetch, or finish)
 RAG_SEARCH_TOOL = types.Tool(
     function_declarations=[RAG_SEARCH_DECLARATION, READY_TO_RESPOND_DECLARATION]
+)
+
+# Tool set with web fetching enabled
+RAG_AND_WEB_TOOL = types.Tool(
+    function_declarations=[
+        RAG_SEARCH_DECLARATION,
+        FETCH_WEBPAGE_DECLARATION,
+        READY_TO_RESPOND_DECLARATION,
+    ]
 )
 
 # Final round tool - only ready_to_respond available
@@ -115,6 +161,7 @@ class ContextBuilder:
         self,
         api_key: str,
         memory_store: MemoryStore,
+        web_fetcher: WebFetcher | None = None,
         model: str = "gemini-3-flash-preview",
     ):
         """Initialize the context builder.
@@ -122,11 +169,13 @@ class ContextBuilder:
         Args:
             api_key: Google AI API key
             memory_store: Memory store for RAG searches
+            web_fetcher: WebFetcher for fetching URLs (optional)
             model: Model to use (default: gemini-3-flash)
         """
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._memory_store = memory_store
+        self._web_fetcher = web_fetcher
 
     def _execute_rag_search(
         self,
@@ -152,6 +201,18 @@ class ContextBuilder:
             lines.append(f"- {user_str}{m.content}")
         return "\n".join(lines)
 
+    def _format_webpage_result(self, result: WebPageResult) -> str:
+        """Format a WebPageResult as text for the model."""
+        if result.error:
+            return f"Error fetching {result.url}: {result.error}"
+
+        text = f"# {result.title}\n\n{result.markdown_content}"
+        if result.truncated:
+            text += "\n\n[Content truncated due to length]"
+        if result.images:
+            text += f"\n\n[{len(result.images)} images included]"
+        return text
+
     async def build(
         self,
         message: str,
@@ -160,6 +221,7 @@ class ContextBuilder:
         high_intensity_memories: list[Memory],
         bot_identity: BotIdentity,
         bot_nickname: str,
+        detected_urls: list[str] | None = None,
     ) -> ContextResult:
         """Build context for a response.
 
@@ -170,6 +232,7 @@ class ContextBuilder:
             high_intensity_memories: Pre-fetched high-intensity memories for sender
             bot_identity: Which bot will respond (MERRY or HACHIMAN)
             bot_nickname: The IRC nickname of the responding bot
+            detected_urls: URLs found in the message (optional)
 
         Returns:
             ContextResult with gathered information
@@ -187,15 +250,24 @@ class ContextBuilder:
             for m in high_intensity_memories:
                 hi_memories_str += f"- {m.content}\n"
 
+        # Format detected URLs
+        urls_str = ""
+        if detected_urls and self._web_fetcher:
+            urls_str = f"\n\nURLs detected in message: {', '.join(detected_urls)}"
+
         initial_prompt = f"""Recent conversation:
 {recent_context}
 
 Latest message from {sender}: "{message}"
-{hi_memories_str}
+{hi_memories_str}{urls_str}
 Analyze this and gather any additional context needed. Use rag_search if you need more information, or call ready_to_respond if you have enough."""
 
+        # Choose tool set based on web fetcher availability
+        has_web_fetcher = self._web_fetcher is not None
+        tools = [RAG_AND_WEB_TOOL] if has_web_fetcher else [RAG_SEARCH_TOOL]
+
         # Generate system prompt with bot identity
-        system_prompt = get_context_system_prompt(bot_nickname, bot_identity)
+        system_prompt = get_context_system_prompt(bot_nickname, bot_identity, has_web_fetcher)
 
         # Log LLM input
         log_llm_call(
@@ -203,7 +275,7 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
             model=self._model,
             system_prompt=system_prompt,
             user_prompt=initial_prompt,
-            tools=[RAG_SEARCH_TOOL],
+            tools=tools,
             config={"temperature": 0.3},
         )
 
@@ -214,7 +286,7 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                 system_instruction=system_prompt,
                 temperature=0.3,
                 max_output_tokens=8192,
-                tools=[RAG_SEARCH_TOOL],
+                tools=tools,
                 thinking_config=types.ThinkingConfig(
                     thinkingLevel=types.ThinkingLevel.LOW,
                 ),
@@ -248,6 +320,18 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                 operation=f"Context Build (round {result.rounds})",
                 response_text=response_text,
                 tool_calls=[{"name": tc.name, "args": dict(tc.args)} for tc in tool_calls] if tool_calls else None,
+            )
+
+            # Log round summary (always on)
+            tool_names = [tc.name for tc in tool_calls] if tool_calls else None
+            usage = response.usage_metadata if response else None
+            log_llm_round(
+                component="context",
+                model=self._model,
+                round_num=result.rounds,
+                tokens_in=usage.prompt_token_count if usage else None,
+                tokens_out=usage.candidates_token_count if usage else None,
+                tools_called=tool_names,
             )
 
             if not tool_calls:
@@ -303,6 +387,44 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                             response={"result": self._format_search_results(memories)},
                         )
                     )
+
+                elif call.name == "fetch_webpage" and self._web_fetcher:
+                    url = call.args.get("url", "")
+                    include_images = call.args.get("include_images", True)
+
+                    logger.info(f"CONTEXT_FETCH: url={url}")
+
+                    webpage_result = await self._web_fetcher.fetch(
+                        url=url,
+                        include_images=include_images,
+                    )
+
+                    # Format as text + images
+                    parts: list[types.Part] = [
+                        types.Part.from_function_response(
+                            name="fetch_webpage",
+                            response={"content": self._format_webpage_result(webpage_result)},
+                        )
+                    ]
+
+                    # Add images as inline data
+                    for img in webpage_result.images:
+                        try:
+                            image_bytes = base64.b64decode(img.base64_data)
+                            parts.append(
+                                types.Part.from_bytes(
+                                    data=image_bytes,
+                                    mime_type=img.mime_type,
+                                )
+                            )
+                        except Exception as img_err:
+                            logger.debug(f"Failed to add image to context: {img_err}")
+
+                    tool_results.extend(parts)
+
+                    # Track stats
+                    stats = get_session_stats()
+                    stats.increment("webpages_fetched")
 
             # Send tool results back
             if tool_results:

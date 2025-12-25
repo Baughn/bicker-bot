@@ -6,6 +6,7 @@ from .engagement import EngagementChecker, EngagementResult
 from .gate import GateFactors, GateResult, ResponseGate
 from .responder import ResponseGenerator, ResponseResult
 from .router import ChannelBuffer, MessageRouter, TimestampedMessage
+from .web import ImageData, WebFetcher, WebPageResult
 
 __all__ = [
     "BickerChecker",
@@ -17,9 +18,12 @@ __all__ = [
     "EngagementResult",
     "GateFactors",
     "GateResult",
+    "ImageData",
     "MessageRouter",
     "ResponseGate",
     "ResponseGenerator",
     "ResponseResult",
     "TimestampedMessage",
+    "WebFetcher",
+    "WebPageResult",
 ]

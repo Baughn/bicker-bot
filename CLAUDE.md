@@ -220,3 +220,9 @@ The personalities are defined in `personalities/merry.py` and `personalities/hac
 | `memory/selector.py` | Topic-based bot selection |
 | `memory/embeddings.py` | Local GPU embedding function |
 | `memory/extractor.py` | Post-response memory extraction |
+
+## Version control
+
+The repository uses Jujutsu (jj).
+
+Use `jj commit -m "message"` to commit.

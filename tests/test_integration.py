@@ -14,6 +14,7 @@ from bicker_bot.core import (
     MessageRouter,
     ResponseGate,
     ResponseGenerator,
+    WebFetcher,
 )
 from bicker_bot.irc.client import Message
 from bicker_bot.memory import BotIdentity, BotSelector, Memory, MemoryExtractor, MemoryStore
@@ -252,3 +253,100 @@ class TestPersonalityConsistency:
 
         assert result.messages
         # Merry should be encouraging but direct
+
+
+class TestWebFetcherIntegration:
+    """Integration tests for web fetching functionality."""
+
+    @pytest.fixture
+    async def fetcher(self) -> WebFetcher:
+        """Create web fetcher with cleanup."""
+        f = WebFetcher()
+        yield f
+        await f.close()
+
+    @pytest.mark.asyncio
+    async def test_fetch_real_page(self, fetcher: WebFetcher):
+        """Test fetching a real webpage (httpbin)."""
+        result = await fetcher.fetch("https://httpbin.org/html", include_images=False)
+
+        assert result.error is None
+        assert "Herman Melville" in result.markdown_content
+        # Note: httpbin.org/html has no <title> tag, so title may be empty
+
+    @pytest.mark.asyncio
+    async def test_fetch_nonexistent_page(self, fetcher: WebFetcher):
+        """Test handling of 404 pages."""
+        result = await fetcher.fetch(
+            "https://httpbin.org/status/404", include_images=False
+        )
+
+        assert result.error is not None
+        assert "404" in result.error
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_redirect(self, fetcher: WebFetcher):
+        """Test following redirects."""
+        # httpbin redirects /redirect/1 -> /get
+        result = await fetcher.fetch(
+            "https://httpbin.org/redirect/1", include_images=False
+        )
+
+        # Will get non-HTML response, so should error
+        assert result.error is not None or "redirect" in result.markdown_content.lower()
+
+    @pytest.mark.asyncio
+    async def test_fetch_direct_image_url(self, fetcher: WebFetcher):
+        """Test fetching a direct image URL returns image data.
+
+        A message containing an image URL should result in the image being
+        available to attach to LLM calls.
+        """
+        result = await fetcher.fetch(
+            "https://usercontent.irccloud-cdn.com/file/MLwN7WT0/image.png"
+        )
+
+        assert result.error is None, f"Expected success but got error: {result.error}"
+        assert len(result.images) == 1
+        assert result.images[0].base64_data, "Image should have base64 data"
+        assert result.images[0].mime_type == "image/jpeg"  # Converted to JPEG
+        assert result.images[0].width > 0
+        assert result.images[0].height > 0
+        assert result.markdown_content == "[Direct image link]"
+
+
+class TestResponderWithWebTools:
+    """Integration tests for responder with web tools enabled."""
+
+    @pytest.fixture
+    def responder_with_web(self) -> ResponseGenerator:
+        """Create response generator with web fetcher."""
+        return ResponseGenerator(
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+            google_api_key=get_google_key(),
+            web_fetcher=WebFetcher(),
+            opus_model="claude-sonnet-4-20250514",
+            gemini_model="gemini-2.0-flash-exp",
+        )
+
+    @pytest.mark.asyncio
+    async def test_responder_has_web_tools(self, responder_with_web: ResponseGenerator):
+        """Test that responder accepts web fetcher."""
+        assert responder_with_web._web_fetcher is not None
+
+    @pytest.mark.asyncio
+    async def test_generate_with_url_mention(self, responder_with_web: ResponseGenerator):
+        """Test generating response when URL is mentioned."""
+        result = await responder_with_web.generate(
+            bot=BotIdentity.HACHIMAN,
+            system_prompt=get_hachiman_prompt("TestHachi"),
+            context_summary={"suggested_tone": "helpful"},
+            recent_conversation="[12:00] <Alice> Check this out",
+            message="What do you think of https://httpbin.org/html ?",
+            sender="Alice",
+            detected_urls=["https://httpbin.org/html"],
+        )
+
+        # Should get some response (may or may not use the tool)
+        assert result.messages is not None
+        assert result.bot == BotIdentity.HACHIMAN

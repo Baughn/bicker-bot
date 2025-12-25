@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from google import genai
 from google.genai import types
 
-from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response
+from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,16 @@ How likely should the other bot respond? (0-100)"""
                     temperature=0.3,
                     max_output_tokens=100,
                 ),
+            )
+
+            # Log round summary (always on)
+            usage = response.usage_metadata if response else None
+            log_llm_round(
+                component="bicker",
+                model=self._model,
+                round_num=1,
+                tokens_in=usage.prompt_token_count if usage else None,
+                tokens_out=usage.candidates_token_count if usage else None,
             )
 
             raw = response.text.strip()
