@@ -329,7 +329,11 @@ class Orchestrator:
             else self._config.irc.nick_hachiman
         )
 
-        for msg in messages:
+        for i, msg in enumerate(messages):
+            # Delay between separate messages (not before first)
+            if i > 0:
+                await asyncio.sleep(0.33)
+
             # Check for /me prefix to send as action
             if msg.startswith("/me "):
                 action_content = msg[4:]  # Strip "/me "

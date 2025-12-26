@@ -14,6 +14,38 @@ from bicker_bot.config import Config
 
 logger = logging.getLogger(__name__)
 
+# IRC has a 512 byte limit per message including protocol overhead.
+# Account for `:nick!user@host PRIVMSG #channel :` prefix and `\r\n` suffix.
+# Using 400 chars as a safe limit for message content.
+MAX_MESSAGE_LENGTH = 400
+MESSAGE_SPLIT_DELAY = 0.33  # Delay between split message parts
+
+
+def split_message(text: str, max_length: int = MAX_MESSAGE_LENGTH) -> list[str]:
+    """Split a message into chunks that fit within IRC limits.
+
+    Splits at word boundaries when possible, falling back to hard splits.
+    """
+    if len(text) <= max_length:
+        return [text]
+
+    chunks: list[str] = []
+    while text:
+        if len(text) <= max_length:
+            chunks.append(text)
+            break
+
+        # Find a good split point (last space within limit)
+        split_at = text.rfind(" ", 0, max_length)
+        if split_at == -1 or split_at < max_length // 2:
+            # No good split point, hard split
+            split_at = max_length
+
+        chunks.append(text[:split_at].rstrip())
+        text = text[split_at:].lstrip()
+
+    return chunks
+
 
 class MessageType(Enum):
     """Type of IRC message."""
@@ -169,16 +201,24 @@ class BotClient(pydle.Client):
             logger.exception(f"[{self.nickname}] Error handling mode change")
 
     async def send_message(self, channel: str, content: str) -> None:
-        """Send a message to a channel."""
+        """Send a message to a channel, splitting if too long."""
         await self._ready.wait()
-        await self.message(channel, content)
-        logger.info(f"MSG_SENT: [{self.nickname}] -> {channel}: {content}")
+        chunks = split_message(content)
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                await asyncio.sleep(MESSAGE_SPLIT_DELAY)
+            await self.message(channel, chunk)
+            logger.info(f"MSG_SENT: [{self.nickname}] -> {channel}: {chunk}")
 
     async def send_action(self, channel: str, content: str) -> None:
-        """Send an action (/me) to a channel."""
+        """Send an action (/me) to a channel, splitting if too long."""
         await self._ready.wait()
-        await self.ctcp(channel, "ACTION", content)
-        logger.info(f"MSG_SENT: [{self.nickname}] -> {channel}: * {content}")
+        chunks = split_message(content)
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                await asyncio.sleep(MESSAGE_SPLIT_DELAY)
+            await self.ctcp(channel, "ACTION", chunk)
+            logger.info(f"MSG_SENT: [{self.nickname}] -> {channel}: * {chunk}")
 
     async def wait_ready(self) -> None:
         """Wait until the client is connected and in channels."""
