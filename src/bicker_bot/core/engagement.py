@@ -114,7 +114,15 @@ What is the probability (0-100) that the bots should respond?"""
                     temperature=0.1,
                     max_output_tokens=512,
                     response_mime_type="application/json",
-                    response_json_schema=EngagementResponse.model_json_schema(),
+                    response_schema=types.Schema(
+                        type=types.Type.OBJECT,
+                        required=["probability"],
+                        properties={
+                            "probability": types.Schema(
+                                type=types.Type.INTEGER,
+                            ),
+                        },
+                    ),
                 ),
             )
 

@@ -6,7 +6,7 @@ from typing import Literal
 
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 from bicker_bot.memory.store import Memory, MemoryStore, MemoryType
@@ -21,10 +21,10 @@ class MemoryExtraction(BaseModel):
     intensity: float = Field(ge=0.0, le=1.0, default=0.5)
 
 
-class MemoryExtractionList(RootModel[list[MemoryExtraction]]):
-    """List of memory extractions for JSON schema."""
+class MemoryExtractionResponse(BaseModel):
+    """Wrapper for memory extractions (Gemini requires object at root)."""
 
-    pass
+    memories: list[MemoryExtraction] = Field(default_factory=list)
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,28 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                     temperature=0.2,  # Low temperature for consistent extraction
                     max_output_tokens=8192,
                     response_mime_type="application/json",
-                    response_json_schema=MemoryExtractionList.model_json_schema(),
+                    response_schema=types.Schema(
+                        type=types.Type.OBJECT,
+                        required=["memories"],
+                        properties={
+                            "memories": types.Schema(
+                                type=types.Type.ARRAY,
+                                items=types.Schema(
+                                    type=types.Type.OBJECT,
+                                    required=["content", "type", "intensity"],
+                                    properties={
+                                        "content": types.Schema(type=types.Type.STRING),
+                                        "user": types.Schema(type=types.Type.STRING),
+                                        "type": types.Schema(
+                                            type=types.Type.STRING,
+                                            enum=["fact", "opinion", "interaction", "event"],
+                                        ),
+                                        "intensity": types.Schema(type=types.Type.NUMBER),
+                                    },
+                                ),
+                            ),
+                        },
+                    ),
                 ),
             )
 
@@ -152,8 +173,8 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
             memories: list[Memory] = []
 
             try:
-                extractions = MemoryExtractionList.model_validate_json(raw)
-                for extraction in extractions.root:
+                response_obj = MemoryExtractionResponse.model_validate_json(raw)
+                for extraction in response_obj.memories:
                     memory = Memory(
                         content=extraction.content,
                         user=extraction.user,

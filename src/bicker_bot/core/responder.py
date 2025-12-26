@@ -10,17 +10,10 @@ from typing import Any
 import anthropic
 from google import genai
 from google.genai import types
-from pydantic import RootModel
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 from bicker_bot.core.web import ImageData, WebFetcher, WebPageResult
 from bicker_bot.memory import BotIdentity
-
-
-class ResponseMessages(RootModel[list[str]]):
-    """List of response messages for JSON schema."""
-
-    pass
 
 
 logger = logging.getLogger(__name__)
@@ -218,14 +211,20 @@ Do not include a "json```" header or ``` trailer."""
         return "\n".join(lines) if lines else "No additional context."
 
     def _parse_response_json(self, raw: str | None) -> list[str]:
-        """Parse LLM response as JSON array of messages."""
+        """Parse LLM response as JSON object with messages array."""
         if not raw:
             return []
         try:
             parsed = json.loads(raw)
+            # Expected format: {"messages": ["msg1", "msg2"]}
+            if isinstance(parsed, dict) and "messages" in parsed:
+                messages = parsed["messages"]
+                if isinstance(messages, list):
+                    return [str(m) for m in messages if m]
+            # Fallback: direct array (Claude format)
             if isinstance(parsed, list):
                 return [str(m) for m in parsed if m]
-            # Single string returned instead of array
+            # Single string returned
             return [str(parsed)] if parsed else []
         except json.JSONDecodeError:
             # Fallback: treat raw text as single message
@@ -570,7 +569,18 @@ Do not include a "json```" header or ``` trailer."""
                         temperature=0.8,
                         max_output_tokens=4096,
                         response_mime_type="application/json",
-                        response_json_schema=ResponseMessages.model_json_schema(),
+                        response_schema=types.Schema(
+                            type=types.Type.OBJECT,
+                            required=["messages"],
+                            properties={
+                                "messages": types.Schema(
+                                    type=types.Type.ARRAY,
+                                    items=types.Schema(
+                                        type=types.Type.STRING,
+                                    ),
+                                ),
+                            },
+                        ),
                         thinking_config=types.ThinkingConfig(
                             thinkingLevel=types.ThinkingLevel.LOW,
                         ),
