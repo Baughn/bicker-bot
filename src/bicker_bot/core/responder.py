@@ -33,6 +33,7 @@ class ResponseResult:
     messages: list[str] = field(default_factory=list)  # Can be empty, 1, or multiple
     bot: BotIdentity = BotIdentity.HACHIMAN
     model_used: str = ""
+    truncated: bool = False  # True if output hit token limit (response should be discarded)
 
 
 # Callback type for error notifications
@@ -291,7 +292,7 @@ Do not include a "json```" header or ``` trailer."""
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tools=tools if tools else None,
-                config={"max_tokens": 8192},
+                config={"max_tokens": 4096},
             )
 
             messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
@@ -305,7 +306,7 @@ Do not include a "json```" header or ``` trailer."""
                 logger.debug(f"CLAUDE_ROUND {round_num}: sending {len(messages)} messages, tools={'omitted' if is_final_round else 'included'}")
                 response = await self._anthropic.messages.create(
                     model=self._opus_model,
-                    max_tokens=8192,
+                    max_tokens=4096,
                     system=system_prompt,
                     tools=current_tools,
                     messages=messages,
@@ -327,18 +328,24 @@ Do not include a "json```" header or ``` trailer."""
                     stop_reason=response.stop_reason,
                 )
 
-                # Check for max_tokens stop reason
+                # Check for max_tokens stop reason - abort and discard
                 if response.stop_reason == "max_tokens":
                     logger.error(
                         f"CLAUDE_MAX_TOKENS: Model {self._opus_model} hit token limit. "
-                        f"Output may be truncated."
+                        f"Aborting response (will not be sent or stored in memory)."
                     )
                     if self._on_error_notify:
                         asyncio.create_task(
                             self._on_error_notify(
-                                f"Baughn: Claude {self._opus_model} hit max_tokens!"
+                                f"Baughn: Claude {self._opus_model} hit max_tokens! Response aborted."
                             )
                         )
+                    return ResponseResult(
+                        messages=[],
+                        bot=BotIdentity.HACHIMAN,
+                        model_used=self._opus_model,
+                        truncated=True,
+                    )
 
                 # Check for tool use
                 tool_use_blocks = [
@@ -446,7 +453,7 @@ Do not include a "json```" header or ``` trailer."""
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tools=tools,
-                config={"temperature": 0.8, "max_output_tokens": 8192, "thinking": "LOW"},
+                config={"temperature": 0.8, "max_output_tokens": 4096, "thinking": "LOW"},
             )
 
             if tools:
@@ -456,7 +463,7 @@ Do not include a "json```" header or ``` trailer."""
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         temperature=0.8,
-                        max_output_tokens=8192,
+                        max_output_tokens=4096,
                         tools=tools,
                         thinking_config=types.ThinkingConfig(
                             thinkingLevel=types.ThinkingLevel.LOW,
@@ -561,7 +568,7 @@ Do not include a "json```" header or ``` trailer."""
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         temperature=0.8,
-                        max_output_tokens=8192,
+                        max_output_tokens=4096,
                         response_mime_type="application/json",
                         response_json_schema=ResponseMessages.model_json_schema(),
                         thinking_config=types.ThinkingConfig(
@@ -570,20 +577,26 @@ Do not include a "json```" header or ``` trailer."""
                     ),
                 )
 
-            # Check for MAX_TOKENS finish reason
+            # Check for MAX_TOKENS finish reason - abort and discard
             if response.candidates:
                 finish_reason = response.candidates[0].finish_reason
                 if finish_reason == types.FinishReason.MAX_TOKENS:
                     logger.error(
-                        f"GEMINI_MAX_TOKENS: Model {self._gemini_model} hit token limit "
-                        f"with no output. Thinking may have consumed entire budget."
+                        f"GEMINI_MAX_TOKENS: Model {self._gemini_model} hit token limit. "
+                        f"Aborting response (will not be sent or stored in memory)."
                     )
                     if self._on_error_notify:
                         asyncio.create_task(
                             self._on_error_notify(
-                                f"Baughn: Gemini {self._gemini_model} hit MAX_TOKENS with no output!"
+                                f"Baughn: Gemini {self._gemini_model} hit max_tokens! Response aborted."
                             )
                         )
+                    return ResponseResult(
+                        messages=[],
+                        bot=BotIdentity.MERRY,
+                        model_used=self._gemini_model,
+                        truncated=True,
+                    )
 
             raw_content = response.text if response else None
             messages = self._parse_response_json(raw_content)

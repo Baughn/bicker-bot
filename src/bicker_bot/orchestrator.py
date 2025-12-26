@@ -37,6 +37,7 @@ class ProcessingResult:
     gate_passed: bool = False
     engagement_passed: bool = False
     reason: str = ""
+    truncated: bool = False  # True if output hit token limit (response discarded)
 
 
 @dataclass
@@ -247,7 +248,7 @@ class Orchestrator:
 
         if result.responded and result.messages:
             await self._send_responses(
-                channel, responding_bot, result.messages, message
+                channel, responding_bot, result.messages, message, result.truncated
             )
 
     async def _process_batch(self, channel: str, messages: list[Message]) -> None:
@@ -289,7 +290,7 @@ class Orchestrator:
             result = await self._process_message(representative)
             if result.responded and result.messages and result.bot:
                 await self._send_responses(
-                    channel, result.bot, result.messages, representative
+                    channel, result.bot, result.messages, representative, result.truncated
                 )
 
         # Randomize order for direct-addressed responses
@@ -307,7 +308,7 @@ class Orchestrator:
                 representative, combined_content, bot
             )
             if result.responded and result.messages:
-                await self._send_responses(channel, bot, result.messages, representative)
+                await self._send_responses(channel, bot, result.messages, representative, result.truncated)
 
     async def _send_responses(
         self,
@@ -315,6 +316,7 @@ class Orchestrator:
         bot: BotIdentity,
         messages: list[str],
         representative_msg: Message,
+        truncated: bool = False,
     ) -> None:
         """Send response messages and handle memory extraction."""
         if not self._irc:
@@ -346,11 +348,12 @@ class Orchestrator:
         if messages:
             self._bot_selector.record_message(bot, messages[0])
 
-        # Extract memories in background
-        all_responses = " ".join(messages)
-        asyncio.create_task(
-            self._extract_memories(channel, all_responses, bot_name)
-        )
+        # Extract memories in background (skip if truncated - output was garbage)
+        if not truncated:
+            all_responses = " ".join(messages)
+            asyncio.create_task(
+                self._extract_memories(channel, all_responses, bot_name)
+            )
 
     async def _process_direct_addressed(
         self,
@@ -415,6 +418,7 @@ class Orchestrator:
             gate_passed=True,
             engagement_passed=True,
             reason="Direct address pipeline completed",
+            truncated=response_result.truncated,
         )
 
     async def _process_message(self, message: Message) -> ProcessingResult:
@@ -540,6 +544,7 @@ class Orchestrator:
             gate_passed=True,
             engagement_passed=True,
             reason="Full pipeline completed",
+            truncated=response_result.truncated,
         )
 
     async def _extract_memories(
