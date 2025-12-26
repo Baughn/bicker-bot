@@ -19,6 +19,7 @@ class GateFactors:
     mentioned: bool = False
     is_question: bool = False
     is_conversation_start: bool = False
+    is_mode_change: bool = False  # Channel mode change event
     consecutive_bot_messages: int = 0
     directly_addressed: bool = False  # "botname:" or "botname," at start
     addressed_bot: str | None = None  # Which bot was addressed (lowercase)
@@ -33,6 +34,8 @@ class GateFactors:
             parts.append("question")
         if self.is_conversation_start:
             parts.append("conv_start")
+        if self.is_mode_change:
+            parts.append("mode_change")
         if self.consecutive_bot_messages > 0:
             parts.append(f"bot_streak={self.consecutive_bot_messages}")
         return f"GateFactors({', '.join(parts) or 'none'})"
@@ -122,6 +125,7 @@ class ResponseGate:
         last_activity: datetime | None,
         consecutive_bot_messages: int,
         current_time: datetime | None = None,
+        is_mode_change: bool = False,
     ) -> GateFactors:
         """Analyze a message and return the probability factors."""
         directly_addressed, addressed_bot = self._check_direct_address(message)
@@ -129,6 +133,7 @@ class ResponseGate:
             mentioned=self._check_mention(message),
             is_question=self._check_question(message),
             is_conversation_start=self._check_conversation_start(last_activity, current_time),
+            is_mode_change=is_mode_change,
             consecutive_bot_messages=consecutive_bot_messages,
             directly_addressed=directly_addressed,
             addressed_bot=addressed_bot,
@@ -153,6 +158,8 @@ class ResponseGate:
             prob += cfg.question_prob
         if factors.is_conversation_start:
             prob += cfg.conversation_start_prob
+        if factors.is_mode_change:
+            prob += cfg.mode_change_prob
 
         prob = min(prob, 1.0)
 
@@ -170,6 +177,7 @@ class ResponseGate:
         last_activity: datetime | None,
         consecutive_bot_messages: int,
         current_time: datetime | None = None,
+        is_mode_change: bool = False,
         _roll: float | None = None,  # For testing
     ) -> GateResult:
         """Decide whether to respond to a message.
@@ -179,6 +187,7 @@ class ResponseGate:
             last_activity: Timestamp of last channel activity
             consecutive_bot_messages: Number of consecutive bot messages
             current_time: Current time (for testing)
+            is_mode_change: Whether this is a channel mode change event
             _roll: Override random roll (for testing)
 
         Returns:
@@ -189,6 +198,7 @@ class ResponseGate:
             last_activity=last_activity,
             consecutive_bot_messages=consecutive_bot_messages,
             current_time=current_time,
+            is_mode_change=is_mode_change,
         )
 
         probability = self.calculate_probability(factors)
@@ -211,7 +221,8 @@ class ResponseGate:
             f"Gate calculation: base={cfg.base_prob} + "
             f"mention={cfg.mention_prob if factors.mentioned else 0} + "
             f"question={cfg.question_prob if factors.is_question else 0} + "
-            f"conv_start={cfg.conversation_start_prob if factors.is_conversation_start else 0} "
+            f"conv_start={cfg.conversation_start_prob if factors.is_conversation_start else 0} + "
+            f"mode_change={cfg.mode_change_prob if factors.is_mode_change else 0} "
             f"* decay^{factors.consecutive_bot_messages}"
         )
 

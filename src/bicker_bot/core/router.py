@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bicker_bot.irc.client import Message
 
+from bicker_bot.irc.client import MessageType
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +36,11 @@ class TimestampedMessage:
 
     @property
     def is_action(self) -> bool:
-        return self.message.is_action
+        return self.message.type == MessageType.ACTION
+
+    @property
+    def message_type(self) -> MessageType:
+        return self.message.type
 
 
 @dataclass
@@ -140,12 +146,15 @@ class MessageRouter:
         [12:34] <Alice> Hello!
         [12:35] <Bob> Hi there
         [12:36] * Bob waves
+        [12:37] ** Channel mode set to +R by ChanServ
         """
         lines = []
         for msg in messages:
             time_str = msg.timestamp.strftime("%H:%M")
-            if msg.is_action:
+            if msg.message_type == MessageType.ACTION:
                 lines.append(f"[{time_str}] * {msg.sender} {msg.content}")
+            elif msg.message_type == MessageType.MODE_CHANGE:
+                lines.append(f"[{time_str}] ** {msg.content}")
             else:
                 lines.append(f"[{time_str}] <{msg.sender}> {msg.content}")
         return "\n".join(lines)

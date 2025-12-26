@@ -17,7 +17,7 @@ from bicker_bot.core import (
     WebFetcher,
 )
 from bicker_bot.core.logging import get_session_stats, log_timing
-from bicker_bot.irc.client import IRCClient, Message
+from bicker_bot.irc.client import IRCClient, Message, MessageType
 from bicker_bot.memory import BotIdentity, BotSelector, MemoryExtractor, MemoryStore
 from bicker_bot.personalities import get_personality_prompt
 
@@ -146,8 +146,10 @@ class Orchestrator:
         await self._router.add_message(message)
 
         # Log received message
-        if message.is_action:
+        if message.type == MessageType.ACTION:
             logger.info(f"MSG_RECEIVED: * {message.sender} {message.content}")
+        elif message.type == MessageType.MODE_CHANGE:
+            logger.info(f"MSG_RECEIVED: ** {message.content}")
         else:
             logger.info(f"MSG_RECEIVED: <{message.sender}> {message.content}")
 
@@ -329,10 +331,10 @@ class Orchestrator:
             # Check for /me prefix to send as action
             if msg.startswith("/me "):
                 action_content = msg[4:]  # Strip "/me "
-                await self._irc.send(bot_name, channel, action_content, is_action=True)
+                await self._irc.send(bot_name, channel, action_content, msg_type=MessageType.ACTION)
                 # Add bot's message to router so it appears in context
                 bot_msg = Message(
-                    channel=channel, sender=bot_nick, content=action_content, is_action=True
+                    channel=channel, sender=bot_nick, content=action_content, type=MessageType.ACTION
                 )
             else:
                 await self._irc.send(bot_name, channel, msg)
@@ -432,6 +434,7 @@ class Orchestrator:
                 message=message.content,
                 last_activity=last_activity,
                 consecutive_bot_messages=consecutive_bot,
+                is_mode_change=message.type == MessageType.MODE_CHANGE,
             )
 
         # Gate is a fast-path bypass: if it passes, skip engagement check

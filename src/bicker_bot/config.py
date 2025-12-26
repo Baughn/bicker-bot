@@ -43,6 +43,7 @@ class GateConfig(BaseModel):
     mention_prob: Annotated[float, Field(ge=0.0, le=1.0)] = 0.8
     question_prob: Annotated[float, Field(ge=0.0, le=1.0)] = 0.3
     conversation_start_prob: Annotated[float, Field(ge=0.0, le=1.0)] = 0.4
+    mode_change_prob: Annotated[float, Field(ge=0.0, le=1.0)] = 0.9
     decay_factor: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
     silence_threshold_minutes: Annotated[int, Field(ge=1)] = 5
 

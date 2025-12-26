@@ -2,8 +2,10 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import Any
 
 import pydle
@@ -13,6 +15,14 @@ from bicker_bot.config import Config
 logger = logging.getLogger(__name__)
 
 
+class MessageType(Enum):
+    """Type of IRC message."""
+
+    NORMAL = auto()
+    ACTION = auto()  # /me actions
+    MODE_CHANGE = auto()  # channel mode changes
+
+
 @dataclass
 class Message:
     """Represents an IRC message."""
@@ -20,10 +30,10 @@ class Message:
     channel: str
     sender: str
     content: str
-    is_action: bool = False
+    type: MessageType = MessageType.NORMAL
 
     def __str__(self) -> str:
-        if self.is_action:
+        if self.type == MessageType.ACTION:
             return f"* {self.sender} {self.content}"
         return f"<{self.sender}> {self.content}"
 
@@ -47,10 +57,13 @@ class BotClient(pydle.Client):
         self._on_message = on_message
         self._nickserv_password = nickserv_password
         self._ready = asyncio.Event()
+        self._connect_time: float = 0.0
+        self._recent_joins: dict[str, float] = {}  # "channel#nick" -> join time
 
     async def on_connect(self) -> None:
         """Handle successful connection."""
         logger.info(f"[{self.nickname}] Connected to server")
+        self._connect_time = time.monotonic()
 
         # Identify with NickServ if password provided
         if self._nickserv_password:
@@ -64,6 +77,11 @@ class BotClient(pydle.Client):
             logger.info(f"[{self.nickname}] Joined {channel}")
 
         self._ready.set()
+
+    async def on_join(self, channel: str, user: str) -> None:
+        """Track user joins for filtering auto-op mode changes."""
+        key = f"{channel.lower()}#{user.lower()}"
+        self._recent_joins[key] = time.monotonic()
 
     async def on_message(self, target: str, source: str, message: str) -> None:
         """Handle incoming channel/private messages."""
@@ -96,7 +114,7 @@ class BotClient(pydle.Client):
         if not target.startswith("#"):
             return
 
-        msg = Message(channel=target, sender=source, content=message, is_action=True)
+        msg = Message(channel=target, sender=source, content=message, type=MessageType.ACTION)
         logger.debug(f"[{self.nickname}] Received action: {msg}")
 
         if self._on_message:
@@ -104,6 +122,51 @@ class BotClient(pydle.Client):
                 await self._on_message(msg)
             except Exception:
                 logger.exception(f"[{self.nickname}] Error handling action")
+
+    async def on_mode_change(self, channel: str, modes: list[str], by: str) -> None:
+        """Handle channel mode changes.
+
+        Args:
+            channel: The channel where modes changed
+            modes: List of mode strings (e.g., ['+o', 'username'])
+            by: Nickname of who changed the mode
+        """
+        if self._on_message is None:
+            return
+
+        # Ignore mode changes in first 10 seconds (initial state sync on join)
+        if time.monotonic() - self._connect_time < 10:
+            logger.debug(f"[{self.nickname}] Ignoring startup mode change: {modes}")
+            return
+
+        # Only process channel modes
+        if not channel.startswith("#"):
+            return
+
+        # Check if mode target joined recently (auto-op filtering)
+        # modes like ['+o', 'username'] - target is after the mode chars
+        if len(modes) >= 2:
+            target = modes[-1].lower()
+            key = f"{channel.lower()}#{target}"
+            if key in self._recent_joins:
+                if time.monotonic() - self._recent_joins[key] < 10:
+                    logger.debug(f"[{self.nickname}] Ignoring auto-op for recent join: {modes}")
+                    return
+
+        mode_str = " ".join(modes)
+        content = f"Channel mode set to {mode_str} by {by}"
+        msg = Message(
+            channel=channel,
+            sender=by,
+            content=content,
+            type=MessageType.MODE_CHANGE,
+        )
+        logger.debug(f"[{self.nickname}] Mode change: {msg}")
+
+        try:
+            await self._on_message(msg)
+        except Exception:
+            logger.exception(f"[{self.nickname}] Error handling mode change")
 
     async def send_message(self, channel: str, content: str) -> None:
         """Send a message to a channel."""
@@ -210,7 +273,7 @@ class IRCClient:
         await self._hachiman.send_message(channel, content)
 
     async def send(
-        self, bot: str, channel: str, content: str, is_action: bool = False
+        self, bot: str, channel: str, content: str, msg_type: MessageType = MessageType.NORMAL
     ) -> None:
         """Send a message or action as the specified bot.
 
@@ -218,7 +281,7 @@ class IRCClient:
             bot: Either "merry" or "hachiman"
             channel: Target channel
             content: Message content (for actions, this is the action text without /me)
-            is_action: If True, send as CTCP ACTION (/me)
+            msg_type: Type of message to send (NORMAL or ACTION)
         """
         bot_lower = bot.lower()
         if bot_lower == "merry":
@@ -231,7 +294,7 @@ class IRCClient:
         if client is None:
             raise RuntimeError("Not connected")
 
-        if is_action:
+        if msg_type == MessageType.ACTION:
             await client.send_action(channel, content)
         else:
             await client.send_message(channel, content)
