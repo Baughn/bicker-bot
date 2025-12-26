@@ -39,7 +39,7 @@ CLAUDE_FETCH_TOOL = {
     "description": (
         "Fetch and read the content of a webpage. Returns the page content as markdown text, "
         "with any images included. Use this when someone shares a URL and you need to see "
-        "what's on the page to respond helpfully."
+        "what's on the page to respond helpfully. Generally avoid using this."
     ),
     "input_schema": {
         "type": "object",
@@ -171,13 +171,10 @@ You can respond with:
 
 Bias toward fewer messages unless specifically addressing multiple people.
 
-Format your response as a raw JSON array of strings, like:
-["first message"]
-or for multiple: ["first message", "second message"]
-or with an action: ["/me sighs", "Fine, I'll help."]
-or for no response: []
+Format your response as a raw JSON object, like so: {{"messages": ["/me yawns", "good morning"]}}
 
-Do not include a "json```" header or ``` trailer."""
+Do not include backticks. Do not nest the JSON.
+"""
 
         if bot == BotIdentity.HACHIMAN:
             return await self._generate_opus(
@@ -291,7 +288,7 @@ Do not include a "json```" header or ``` trailer."""
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tools=tools if tools else None,
-                config={"max_tokens": 4096},
+                config={"max_tokens": 8192},
             )
 
             messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
@@ -305,7 +302,7 @@ Do not include a "json```" header or ``` trailer."""
                 logger.debug(f"CLAUDE_ROUND {round_num}: sending {len(messages)} messages, tools={'omitted' if is_final_round else 'included'}")
                 response = await self._anthropic.messages.create(
                     model=self._opus_model,
-                    max_tokens=4096,
+                    max_tokens=8192,
                     system=system_prompt,
                     tools=current_tools,
                     messages=messages,
@@ -452,7 +449,7 @@ Do not include a "json```" header or ``` trailer."""
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tools=tools,
-                config={"temperature": 0.8, "max_output_tokens": 4096, "thinking": "LOW"},
+                config={"temperature": 0.8, "max_output_tokens": 8192, "thinking": "LOW"},
             )
 
             if tools:
@@ -462,7 +459,7 @@ Do not include a "json```" header or ``` trailer."""
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         temperature=0.8,
-                        max_output_tokens=4096,
+                        max_output_tokens=8192,
                         tools=tools,
                         thinking_config=types.ThinkingConfig(
                             thinkingLevel=types.ThinkingLevel.LOW,
@@ -567,7 +564,7 @@ Do not include a "json```" header or ``` trailer."""
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         temperature=0.8,
-                        max_output_tokens=4096,
+                        max_output_tokens=8192,
                         response_mime_type="application/json",
                         response_schema=types.Schema(
                             type=types.Type.OBJECT,
