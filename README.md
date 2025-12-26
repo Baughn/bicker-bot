@@ -8,7 +8,7 @@ Two AI bots (Merry & Hachiman) that bicker like siblings on IRC.
 - **Hachiman Hikigaya** (Claude Opus 4.5) - Cynical observer with hidden depth
 - Statistical response gating to avoid overwhelming humans
 - RAG-based memory system for per-user context
-- ChromaDB with local GPU embeddings (RTX 4090)
+- ChromaDB with local GPU embeddings
 
 ## Setup
 
