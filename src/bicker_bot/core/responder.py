@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
-from google import genai
-from google.genai import types
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 from bicker_bot.core.web import ImageData, WebFetcher, WebPageResult
@@ -58,62 +56,38 @@ CLAUDE_FETCH_TOOL = {
 }
 
 
-# Gemini tool definition
-GEMINI_FETCH_DECLARATION = types.FunctionDeclaration(
-    name="fetch_webpage",
-    description=(
-        "Fetch and read the content of a webpage. Returns the page content as markdown text, "
-        "with any images included. Use this when someone shares a URL and you need to see "
-        "what's on the page to respond helpfully."
-    ),
-    parameters=types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "url": types.Schema(
-                type=types.Type.STRING,
-                description="The full URL to fetch (must start with http:// or https://)",
-            ),
-            "include_images": types.Schema(
-                type=types.Type.BOOLEAN,
-                description="Whether to include images from the page (default: true)",
-            ),
-        },
-        required=["url"],
-    ),
-)
-
-GEMINI_FETCH_TOOL = types.Tool(function_declarations=[GEMINI_FETCH_DECLARATION])
+# Fallback messages by bot personality
+FALLBACK_MESSAGES = {
+    BotIdentity.HACHIMAN: "...I had a thought, but it got away from me.",
+    BotIdentity.MERRY: "Tch... something's off. Let me think about this.",
+}
 
 
 class ResponseGenerator:
-    """Generates responses using either Claude Opus or Gemini Pro."""
+    """Generates responses using Claude Opus."""
 
     MAX_TOOL_ROUNDS = 3
 
     def __init__(
         self,
         anthropic_api_key: str,
-        google_api_key: str,
+        google_api_key: str,  # Unused, kept for API consistency
         web_fetcher: WebFetcher | None = None,
         opus_model: str = "claude-opus-4-5-20251101",
-        gemini_model: str = "gemini-3-pro-preview",
         on_error_notify: ErrorNotifyCallback = None,
     ):
         """Initialize the response generator.
 
         Args:
             anthropic_api_key: Anthropic API key
-            google_api_key: Google AI API key
+            google_api_key: Unused, kept for API consistency with other components
             web_fetcher: WebFetcher instance for fetching URLs (optional)
-            opus_model: Claude model for Hachiman
-            gemini_model: Gemini model for Merry
+            opus_model: Claude model for response generation
             on_error_notify: Callback to notify on critical errors (e.g., ping on IRC)
         """
         self._anthropic = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
-        self._gemini = genai.Client(api_key=google_api_key)
         self._web_fetcher = web_fetcher
         self._opus_model = opus_model
-        self._gemini_model = gemini_model
         self._on_error_notify = on_error_notify
 
     async def generate(
@@ -176,16 +150,11 @@ Format your response as a raw JSON object, like so: {{"messages": ["/me yawns", 
 Do not include backticks. Do not nest the JSON.
 """
 
-        if bot == BotIdentity.HACHIMAN:
-            return await self._generate_opus(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-            )
-        else:
-            return await self._generate_gemini(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-            )
+        return await self._generate_response(
+            bot=bot,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
 
     def _format_context(self, context: dict[str, Any]) -> str:
         """Format context summary for the prompt."""
@@ -257,33 +226,21 @@ Do not include backticks. Do not nest the JSON.
 
         return blocks
 
-    def _format_webpage_result_text(self, result: WebPageResult) -> str:
-        """Format a WebPageResult as text only (for Gemini)."""
-        if result.error:
-            return f"Error fetching {result.url}: {result.error}"
-
-        text = f"# {result.title}\n\n{result.markdown_content}"
-        if result.truncated:
-            text += "\n\n[Page content was truncated due to length]"
-
-        if result.images:
-            text += f"\n\n[Page contains {len(result.images)} images]"
-
-        return text
-
-    async def _generate_opus(
+    async def _generate_response(
         self,
+        bot: BotIdentity,
         system_prompt: str,
         user_prompt: str,
     ) -> ResponseResult:
         """Generate a response using Claude Opus with tool support."""
+        bot_name = bot.value
         try:
             # Prepare tools if web fetcher is available
             tools = [CLAUDE_FETCH_TOOL] if self._web_fetcher else []
 
             # Log LLM input
             log_llm_call(
-                operation="Response Generation (Hachiman)",
+                operation=f"Response Generation ({bot_name})",
                 model=self._opus_model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -315,7 +272,7 @@ Do not include backticks. Do not nest the JSON.
                 # Log round summary (always on)
                 tool_names = [b.name for b in response.content if b.type == "tool_use"]
                 log_llm_round(
-                    component="responder/hachiman",
+                    component=f"responder/{bot_name}",
                     model=self._opus_model,
                     round_num=round_num,
                     tokens_in=response.usage.input_tokens,
@@ -338,7 +295,7 @@ Do not include backticks. Do not nest the JSON.
                         )
                     return ResponseResult(
                         messages=[],
-                        bot=BotIdentity.HACHIMAN,
+                        bot=bot,
                         model_used=self._opus_model,
                         truncated=True,
                     )
@@ -395,7 +352,7 @@ Do not include backticks. Do not nest the JSON.
 
             # Log LLM response
             log_llm_response(
-                operation="Response Generation (Hachiman)",
+                operation=f"Response Generation ({bot_name})",
                 response_text=raw_content,
                 usage={
                     "input_tokens": response.usage.input_tokens,
@@ -405,7 +362,7 @@ Do not include backticks. Do not nest the JSON.
 
             # Log response with token usage
             logger.info(
-                f"RESPONSE [hachiman]: model={self._opus_model} "
+                f"RESPONSE [{bot_name}]: model={self._opus_model} "
                 f"tokens_in={response.usage.input_tokens} "
                 f"tokens_out={response.usage.output_tokens} "
                 f"messages={len(messages_out)}"
@@ -414,226 +371,21 @@ Do not include backticks. Do not nest the JSON.
 
             # Track stats
             stats = get_session_stats()
-            stats.increment("responses_hachiman")
+            stats.increment(f"responses_{bot_name}")
             stats.increment_api_call(self._opus_model)
 
             return ResponseResult(
                 messages=messages_out,
-                bot=BotIdentity.HACHIMAN,
+                bot=bot,
                 model_used=self._opus_model,
             )
 
         except Exception as e:
-            logger.error(f"Opus generation failed: {e}")
-            logger.warning("RESPONSE [hachiman]: Using fallback response")
+            logger.error(f"Response generation failed: {e}")
+            logger.warning(f"RESPONSE [{bot_name}]: Using fallback response")
             return ResponseResult(
-                messages=["...I had a thought, but it got away from me."],
-                bot=BotIdentity.HACHIMAN,
+                messages=[FALLBACK_MESSAGES[bot]],
+                bot=bot,
                 model_used="fallback",
             )
 
-    async def _generate_gemini(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-    ) -> ResponseResult:
-        """Generate a response using Gemini Pro with tool support."""
-        try:
-            # Prepare tools and config
-            tools = [GEMINI_FETCH_TOOL] if self._web_fetcher else None
-
-            # Log LLM input
-            log_llm_call(
-                operation="Response Generation (Merry)",
-                model=self._gemini_model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                tools=tools,
-                config={"temperature": 0.8, "max_output_tokens": 8192, "thinking": "LOW"},
-            )
-
-            if tools:
-                # Use chat session for tool calling
-                chat = self._gemini.aio.chats.create(
-                    model=self._gemini_model,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        temperature=0.8,
-                        max_output_tokens=8192,
-                        tools=tools,
-                        thinking_config=types.ThinkingConfig(
-                            thinkingLevel=types.ThinkingLevel.LOW,
-                        ),
-                    ),
-                )
-
-                response = await chat.send_message(user_prompt)
-
-                # Tool calling loop
-                for round_num in range(self.MAX_TOOL_ROUNDS):
-                    # Log response info
-                    part_types = []
-                    if response.candidates and response.candidates[0].content.parts:
-                        part_types = [
-                            "function_call" if p.function_call else
-                            "function_response" if p.function_response else
-                            "text" if p.text else "other"
-                            for p in response.candidates[0].content.parts
-                        ]
-                    logger.debug(
-                        f"GEMINI_ROUND {round_num}: part_types={part_types}, "
-                        f"finish_reason={response.candidates[0].finish_reason if response.candidates else None}"
-                    )
-
-                    # Log round summary (always on)
-                    tool_names = [p.function_call.name for p in (response.candidates[0].content.parts if response.candidates and response.candidates[0].content.parts else []) if p.function_call]
-                    usage = response.usage_metadata if response else None
-                    log_llm_round(
-                        component="responder/merry",
-                        model=self._gemini_model,
-                        round_num=round_num,
-                        tokens_in=usage.prompt_token_count if usage else None,
-                        tokens_out=usage.candidates_token_count if usage else None,
-                        tools_called=tool_names if tool_names else None,
-                    )
-
-                    # Check for function calls
-                    function_calls = []
-                    if response.candidates and response.candidates[0].content.parts:
-                        for part in response.candidates[0].content.parts:
-                            if part.function_call:
-                                function_calls.append(part.function_call)
-
-                    if not function_calls:
-                        break
-
-                    # On final round, ask for text response instead of processing more tools
-                    if round_num >= self.MAX_TOOL_ROUNDS - 1:
-                        logger.debug("GEMINI: Final round, requesting text response")
-                        response = await chat.send_message(
-                            "Please provide your final response now based on the information gathered. "
-                            "Do not make any more tool calls."
-                        )
-                        break
-
-                    # Process function calls
-                    tool_results = []
-                    for call in function_calls:
-                        if call.name == "fetch_webpage" and self._web_fetcher:
-                            url = call.args.get("url", "")
-                            include_images = call.args.get("include_images", True)
-
-                            logger.info(f"TOOL_CALL: fetch_webpage url={url}")
-
-                            result = await self._web_fetcher.fetch(
-                                url=url,
-                                include_images=include_images,
-                            )
-
-                            # For Gemini, include images as separate parts
-                            parts = [
-                                types.Part.from_function_response(
-                                    name="fetch_webpage",
-                                    response={"content": self._format_webpage_result_text(result)},
-                                )
-                            ]
-
-                            # Add images as inline data
-                            for img in result.images:
-                                try:
-                                    import base64
-                                    image_bytes = base64.b64decode(img.base64_data)
-                                    parts.append(
-                                        types.Part.from_bytes(
-                                            data=image_bytes,
-                                            mime_type=img.mime_type,
-                                        )
-                                    )
-                                except Exception as img_err:
-                                    logger.debug(f"Failed to add image to Gemini: {img_err}")
-
-                            tool_results.extend(parts)
-
-                    if tool_results:
-                        response = await chat.send_message(tool_results)
-            else:
-                # No tools, simple generation
-                response = await self._gemini.aio.models.generate_content(
-                    model=self._gemini_model,
-                    contents=user_prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        temperature=0.8,
-                        max_output_tokens=8192,
-                        response_mime_type="application/json",
-                        response_schema=types.Schema(
-                            type=types.Type.OBJECT,
-                            required=["messages"],
-                            properties={
-                                "messages": types.Schema(
-                                    type=types.Type.ARRAY,
-                                    items=types.Schema(
-                                        type=types.Type.STRING,
-                                    ),
-                                ),
-                            },
-                        ),
-                        thinking_config=types.ThinkingConfig(
-                            thinkingLevel=types.ThinkingLevel.LOW,
-                        ),
-                    ),
-                )
-
-            # Check for MAX_TOKENS finish reason - abort and discard
-            if response.candidates:
-                finish_reason = response.candidates[0].finish_reason
-                if finish_reason == types.FinishReason.MAX_TOKENS:
-                    logger.error(
-                        f"GEMINI_MAX_TOKENS: Model {self._gemini_model} hit token limit. "
-                        f"Aborting response (will not be sent or stored in memory)."
-                    )
-                    if self._on_error_notify:
-                        asyncio.create_task(
-                            self._on_error_notify(
-                                f"Baughn: Gemini {self._gemini_model} hit max_tokens! Response aborted."
-                            )
-                        )
-                    return ResponseResult(
-                        messages=[],
-                        bot=BotIdentity.MERRY,
-                        model_used=self._gemini_model,
-                        truncated=True,
-                    )
-
-            raw_content = response.text if response else None
-            messages = self._parse_response_json(raw_content)
-
-            # Log LLM response
-            log_llm_response(
-                operation="Response Generation (Merry)",
-                response_text=raw_content,
-            )
-
-            # Log response
-            logger.info(f"RESPONSE [merry]: model={self._gemini_model} messages={len(messages)}")
-            logger.info(f"LITERAL_RESPONSE: {raw_content}")
-
-            # Track stats
-            stats = get_session_stats()
-            stats.increment("responses_merry")
-            stats.increment_api_call(self._gemini_model)
-
-            return ResponseResult(
-                messages=messages,
-                bot=BotIdentity.MERRY,
-                model_used=self._gemini_model,
-            )
-
-        except Exception as e:
-            logger.error(f"Gemini generation failed: {e}")
-            logger.warning("RESPONSE [merry]: Using fallback response")
-            return ResponseResult(
-                messages=["Tch... something's off. Let me think about this."],
-                bot=BotIdentity.MERRY,
-                model_used="fallback",
-            )

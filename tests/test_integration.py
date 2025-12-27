@@ -90,7 +90,6 @@ class TestResponseIntegration:
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
             google_api_key=get_google_key(),
             opus_model="claude-sonnet-4-20250514",  # Use available model for testing
-            gemini_model="gemini-2.0-flash-exp",  # Use available model
         )
 
     @pytest.mark.asyncio
@@ -220,7 +219,6 @@ class TestPersonalityConsistency:
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
             google_api_key=get_google_key(),
             opus_model="claude-sonnet-4-20250514",
-            gemini_model="gemini-2.0-flash-exp",
         )
 
     @pytest.mark.asyncio
@@ -326,7 +324,6 @@ class TestResponderWithWebTools:
             google_api_key=get_google_key(),
             web_fetcher=WebFetcher(),
             opus_model="claude-sonnet-4-20250514",
-            gemini_model="gemini-2.0-flash-exp",
         )
 
     @pytest.mark.asyncio
