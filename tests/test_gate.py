@@ -8,6 +8,7 @@ from hypothesis import strategies as st
 
 from bicker_bot.config import GateConfig
 from bicker_bot.core.gate import GateFactors, GateResult, ResponseGate
+from bicker_bot.tracing import TraceContext
 
 
 class TestGateFactors:
@@ -280,3 +281,35 @@ class TestGateProperties:
             assert result.should_respond is True
         else:
             assert result.should_respond is False
+
+
+class TestGateTracing:
+    """Tests for gate tracing integration."""
+
+    def test_gate_adds_trace_step(self, gate_config: GateConfig, bot_nicks: tuple[str, str]):
+        """Test that gate adds a step to trace context."""
+        gate = ResponseGate(gate_config, bot_nicks)
+        ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["Hello Merry?"],
+            config_snapshot={},
+        )
+
+        result = gate.should_respond(
+            "Hello Merry?", None, 0, _roll=0.01, trace_ctx=ctx
+        )
+
+        assert len(ctx.steps) == 1
+        step = ctx.steps[0]
+        assert step.stage == "gate"
+        assert "probability" in step.outputs
+        assert "roll" in step.outputs
+        assert step.decision != ""
+
+    def test_gate_works_without_trace(self, gate_config: GateConfig, bot_nicks: tuple[str, str]):
+        """Test that gate still works when no trace context provided."""
+        gate = ResponseGate(gate_config, bot_nicks)
+
+        # Should not raise
+        result = gate.should_respond("Hello", None, 0, _roll=0.5)
+        assert isinstance(result, GateResult)

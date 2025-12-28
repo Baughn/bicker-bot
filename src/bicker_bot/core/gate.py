@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 from bicker_bot.config import GateConfig
 from bicker_bot.core.logging import get_session_stats
+from bicker_bot.tracing import TraceContext
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,7 @@ class ResponseGate:
         current_time: datetime | None = None,
         is_mode_change: bool = False,
         _roll: float | None = None,  # For testing
+        trace_ctx: TraceContext | None = None,
     ) -> GateResult:
         """Decide whether to respond to a message.
 
@@ -189,6 +191,7 @@ class ResponseGate:
             current_time: Current time (for testing)
             is_mode_change: Whether this is a channel mode change event
             _roll: Override random roll (for testing)
+            trace_ctx: Optional trace context for debug observability
 
         Returns:
             GateResult with decision and metadata
@@ -210,6 +213,32 @@ class ResponseGate:
             factors=factors,
             roll=roll,
         )
+
+        # Add trace step if context provided
+        if trace_ctx is not None:
+            trace_ctx.add_step(
+                stage="gate",
+                inputs={
+                    "message": message[:200],  # Truncate for storage
+                    "consecutive_bot_messages": consecutive_bot_messages,
+                    "is_mode_change": is_mode_change,
+                },
+                outputs={
+                    "probability": probability,
+                    "roll": roll,
+                    "should_respond": result.should_respond,
+                },
+                decision=f"{'PASS' if result.should_respond else 'FAIL'}: P={probability:.3f} roll={roll:.3f}",
+                details={
+                    "factors": {
+                        "mentioned": factors.mentioned,
+                        "is_question": factors.is_question,
+                        "is_conversation_start": factors.is_conversation_start,
+                        "directly_addressed": factors.directly_addressed,
+                        "addressed_bot": factors.addressed_bot,
+                    },
+                },
+            )
 
         # Log the decision
         status = "PASS" if result.should_respond else "FAIL"
