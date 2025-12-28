@@ -12,6 +12,7 @@ from google.genai import types
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 from bicker_bot.core.web import WebFetcher, WebPageResult
 from bicker_bot.memory import BotIdentity, Memory, MemoryStore
+from bicker_bot.tracing import TraceContext
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,7 @@ class ContextBuilder:
         bot_identity: BotIdentity,
         bot_nickname: str,
         detected_urls: list[str] | None = None,
+        trace_ctx: TraceContext | None = None,
     ) -> ContextResult:
         """Build context for a response.
 
@@ -233,6 +235,7 @@ class ContextBuilder:
             bot_identity: Which bot will respond (MERRY or HACHIMAN)
             bot_nickname: The IRC nickname of the responding bot
             detected_urls: URLs found in the message (optional)
+            trace_ctx: Tracing context for debug observability (optional)
 
         Returns:
             ContextResult with gathered information
@@ -359,6 +362,32 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                     # Track API call
                     stats = get_session_stats()
                     stats.increment_api_call(self._model)
+
+                    # Add trace step if context provided
+                    if trace_ctx is not None:
+                        trace_ctx.add_llm_step(
+                            stage="context",
+                            inputs={
+                                "message": message[:200],
+                                "sender": sender,
+                                "high_intensity_count": len(high_intensity_memories),
+                            },
+                            outputs={
+                                "summary": result.summary,
+                                "rounds": result.rounds,
+                                "memories_found": len(result.memories_found),
+                            },
+                            decision=f"{result.rounds} rounds, {len(result.memories_found)} memories",
+                            model=self._model,
+                            prompt=initial_prompt,
+                            raw_response=str(result.summary),
+                            thinking=None,
+                            thought_signatures=None,
+                            token_usage=None,  # Aggregate across rounds not easily available
+                            details={
+                                "search_queries": result.search_queries,
+                            },
+                        )
 
                     return result
 
@@ -495,5 +524,31 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
         # Track API call
         stats = get_session_stats()
         stats.increment_api_call(self._model)
+
+        # Add trace step if context provided
+        if trace_ctx is not None:
+            trace_ctx.add_llm_step(
+                stage="context",
+                inputs={
+                    "message": message[:200],
+                    "sender": sender,
+                    "high_intensity_count": len(high_intensity_memories),
+                },
+                outputs={
+                    "summary": result.summary,
+                    "rounds": result.rounds,
+                    "memories_found": len(result.memories_found),
+                },
+                decision=f"{result.rounds} rounds, {len(result.memories_found)} memories",
+                model=self._model,
+                prompt=initial_prompt,
+                raw_response=str(result.summary),
+                thinking=None,
+                thought_signatures=None,
+                token_usage=None,  # Aggregate across rounds not easily available
+                details={
+                    "search_queries": result.search_queries,
+                },
+            )
 
         return result
