@@ -12,6 +12,7 @@ import anthropic
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 from bicker_bot.core.web import ImageData, WebFetcher, WebPageResult
 from bicker_bot.memory import BotIdentity
+from bicker_bot.tracing import TraceContext
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ class ResponseGenerator:
         message: str,
         sender: str,
         detected_urls: list[str] | None = None,
+        trace_ctx: TraceContext | None = None,
     ) -> ResponseResult:
         """Generate a response as the specified bot.
 
@@ -154,6 +156,7 @@ Do not include backticks. Do not nest the JSON.
             bot=bot,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            trace_ctx=trace_ctx,
         )
 
     def _format_context(self, context: dict[str, Any]) -> str:
@@ -231,6 +234,7 @@ Do not include backticks. Do not nest the JSON.
         bot: BotIdentity,
         system_prompt: str,
         user_prompt: str,
+        trace_ctx: TraceContext | None = None,
     ) -> ResponseResult:
         """Generate a response using Claude Opus with tool support."""
         bot_name = bot.value
@@ -292,6 +296,29 @@ Do not include backticks. Do not nest the JSON.
                             self._on_error_notify(
                                 f"Baughn: Claude {self._opus_model} hit max_tokens! Response aborted."
                             )
+                        )
+                    # Add trace step for truncated response
+                    if trace_ctx is not None:
+                        trace_ctx.add_llm_step(
+                            stage="responder",
+                            inputs={
+                                "bot": bot.value,
+                                "message_preview": user_prompt[:200],
+                            },
+                            outputs={
+                                "messages": [],
+                                "truncated": True,
+                            },
+                            decision="TRUNCATED - max_tokens hit",
+                            model=self._opus_model,
+                            prompt=user_prompt,
+                            raw_response="[truncated - max_tokens]",
+                            thinking=None,
+                            thought_signatures=None,
+                            token_usage={
+                                "input": response.usage.input_tokens,
+                                "output": response.usage.output_tokens,
+                            },
                         )
                     return ResponseResult(
                         messages=[],
@@ -374,6 +401,37 @@ Do not include backticks. Do not nest the JSON.
             stats.increment(f"responses_{bot_name}")
             stats.increment_api_call(self._opus_model)
 
+            # Add trace step for successful response
+            if trace_ctx is not None:
+                # Extract thinking blocks if any
+                thinking_text = None
+                for block in response.content:
+                    if block.type == "thinking":
+                        thinking_text = block.thinking
+                        break
+
+                trace_ctx.add_llm_step(
+                    stage="responder",
+                    inputs={
+                        "bot": bot.value,
+                        "message_preview": user_prompt[:200],
+                    },
+                    outputs={
+                        "messages": messages_out,
+                        "truncated": False,
+                    },
+                    decision=f"{len(messages_out)} messages",
+                    model=self._opus_model,
+                    prompt=user_prompt,
+                    raw_response=raw_content or "",
+                    thinking=thinking_text,
+                    thought_signatures=None,
+                    token_usage={
+                        "input": response.usage.input_tokens,
+                        "output": response.usage.output_tokens,
+                    },
+                )
+
             return ResponseResult(
                 messages=messages_out,
                 bot=bot,
@@ -383,6 +441,29 @@ Do not include backticks. Do not nest the JSON.
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
             logger.warning(f"RESPONSE [{bot_name}]: Using fallback response")
+
+            # Add trace step for error/fallback case
+            if trace_ctx is not None:
+                trace_ctx.add_llm_step(
+                    stage="responder",
+                    inputs={
+                        "bot": bot.value,
+                        "message_preview": user_prompt[:200],
+                    },
+                    outputs={
+                        "messages": [FALLBACK_MESSAGES[bot]],
+                        "truncated": False,
+                        "error": str(e),
+                    },
+                    decision="ERROR - using fallback",
+                    model="fallback",
+                    prompt=user_prompt,
+                    raw_response=f"error: {e}",
+                    thinking=None,
+                    thought_signatures=None,
+                    token_usage=None,
+                )
+
             return ResponseResult(
                 messages=[FALLBACK_MESSAGES[bot]],
                 bot=bot,
