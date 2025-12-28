@@ -251,3 +251,47 @@ class TestTraceStore:
         deleted = store.prune(keep_last=3)
         assert deleted == 7
         assert len(store.recent(limit=100)) == 3
+
+    def test_bot_detection_from_responder_inputs(self, store: TraceStore):
+        """Test that bot is correctly extracted from responder inputs."""
+        # Test Merry detection
+        merry_ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["hello merry"],
+            config_snapshot={},
+        )
+        merry_ctx.add_llm_step(
+            stage="responder",
+            inputs={"bot": "merry", "message_preview": "hello"},
+            outputs={"messages": ["Hi!"]},
+            decision="1 messages",
+            model="claude-opus-4-5-20251101",  # Same model for both bots
+            prompt="test",
+            raw_response='{"messages": ["Hi!"]}',
+        )
+        merry_ctx.final_result = ["Hi!"]
+        store.save(merry_ctx)
+
+        # Test Hachiman detection
+        hachi_ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["hello hachiman"],
+            config_snapshot={},
+        )
+        hachi_ctx.add_llm_step(
+            stage="responder",
+            inputs={"bot": "hachiman", "message_preview": "hello"},
+            outputs={"messages": ["Hello."]},
+            decision="1 messages",
+            model="claude-opus-4-5-20251101",  # Same model for both bots
+            prompt="test",
+            raw_response='{"messages": ["Hello."]}',
+        )
+        hachi_ctx.final_result = ["Hello."]
+        store.save(hachi_ctx)
+
+        # Verify both are detected correctly
+        recent = store.recent(limit=10)
+        bots = {t.trigger_text: t.bot for t in recent}
+        assert bots["hello merry"] == "merry"
+        assert bots["hello hachiman"] == "hachiman"

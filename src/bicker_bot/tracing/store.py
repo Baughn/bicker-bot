@@ -72,12 +72,9 @@ class TraceStore:
             if step.stage == "selector" and "selected" in step.outputs:
                 bot = step.outputs["selected"]
                 break
-            if step.stage == "responder" and step.model:
-                # Infer from model
-                if "claude" in step.model.lower():
-                    bot = "hachiman"
-                elif "gemini" in step.model.lower():
-                    bot = "merry"
+            if step.stage == "responder" and "bot" in step.inputs:
+                # Get bot from responder inputs (most reliable)
+                bot = step.inputs["bot"]
                 break
 
         # Get first trigger message for preview
