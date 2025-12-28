@@ -9,6 +9,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
+from bicker_bot.tracing import TraceContext
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class EngagementChecker:
         recent_context: str,
         mentioned: bool = False,
         is_question: bool = False,
+        trace_ctx: TraceContext | None = None,
     ) -> EngagementResult:
         """Check if a message warrants engagement.
 
@@ -158,6 +160,30 @@ What is the probability (0-100) that the bots should respond?"""
             stats = get_session_stats()
             stats.increment_api_call(self._model)
 
+            # Add trace step if context provided
+            if trace_ctx is not None:
+                trace_ctx.add_llm_step(
+                    stage="engagement",
+                    inputs={
+                        "message": message[:200],
+                        "mentioned": mentioned,
+                        "is_question": is_question,
+                    },
+                    outputs={
+                        "probability": probability,
+                    },
+                    decision=f"P={probability:.0%}",
+                    model=self._model,
+                    prompt=user_prompt,
+                    raw_response=raw,
+                    thinking=None,
+                    thought_signatures=None,
+                    token_usage={
+                        "input": usage.prompt_token_count if usage else 0,
+                        "output": usage.candidates_token_count if usage else 0,
+                    } if usage else None,
+                )
+
             return EngagementResult(
                 probability=probability,
                 raw_response=raw,
@@ -167,6 +193,29 @@ What is the probability (0-100) that the bots should respond?"""
             logger.error(f"Engagement check failed: {e}")
             # On error, default to high probability if mentioned, low otherwise
             fallback_prob = 0.9 if mentioned else 0.1
+
+            # Add trace step for error case
+            if trace_ctx is not None:
+                trace_ctx.add_llm_step(
+                    stage="engagement",
+                    inputs={
+                        "message": message[:200],
+                        "mentioned": mentioned,
+                        "is_question": is_question,
+                    },
+                    outputs={
+                        "probability": fallback_prob,
+                        "error": str(e),
+                    },
+                    decision=f"ERROR: fallback P={fallback_prob:.0%}",
+                    model=self._model,
+                    prompt=user_prompt if 'user_prompt' in locals() else "prompt not built",
+                    raw_response=f"error: {e}",
+                    thinking=None,
+                    thought_signatures=None,
+                    token_usage=None,
+                )
+
             return EngagementResult(
                 probability=fallback_prob,
                 raw_response=f"error: {e}",
