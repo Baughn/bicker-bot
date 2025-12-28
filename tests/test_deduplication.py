@@ -303,3 +303,87 @@ class TestExtractorIntegration:
             )
 
             assert extractor._deduplicator is not None
+
+
+class TestDeduplicationIntegration:
+    """Integration tests for deduplication (requires mocked LLM)."""
+
+    @pytest.fixture
+    def full_setup(self, tmp_path: Path):
+        """Set up store and deduplicator with controllable embeddings."""
+        config = MemoryConfig(
+            chroma_path=tmp_path / "chroma",
+            embedding_model="test-model",
+            dedup_upper_threshold=0.95,
+            dedup_lower_threshold=0.90,
+        )
+
+        # Use embeddings that give predictable similarity
+        class ControlledEmbeddings:
+            def __init__(self):
+                self._embeddings = {}
+
+            @staticmethod
+            def name() -> str:
+                return "controlled"
+
+            def set_embedding(self, text: str, embedding: list[float]):
+                self._embeddings[text] = embedding
+
+            def __call__(self, input: list[str]) -> list[list[float]]:
+                return [self._embeddings.get(t, [0.0] * 384) for t in input]
+
+            def embed_query(self, query: str) -> list[float]:
+                return self([query])[0]
+
+            def embed_documents(self, documents: list[str]) -> list[list[float]]:
+                return self(documents)
+
+        embedding_fn = ControlledEmbeddings()
+
+        with patch(
+            "bicker_bot.memory.store.LocalEmbeddingFunction",
+            return_value=embedding_fn,
+        ):
+            store = MemoryStore(config)
+
+        return store, embedding_fn, config
+
+    @pytest.mark.asyncio
+    async def test_auto_replace_very_similar(self, full_setup):
+        """Test that very similar memories trigger auto-replace."""
+        store, embedding_fn, config = full_setup
+
+        from bicker_bot.memory.deduplicator import MemoryDeduplicator
+
+        # Set up embeddings so they're very similar (cosine sim ~0.99)
+        base = [1.0] + [0.0] * 383
+        similar = [0.995] + [0.1] + [0.0] * 382
+
+        embedding_fn.set_embedding("About alice: Alice likes cats", base)
+        embedding_fn.set_embedding("About alice: Alice really likes cats", similar)
+
+        # Add first memory
+        old = Memory(content="Alice likes cats", user="alice")
+        store.add(old)
+
+        dedup = MemoryDeduplicator(
+            store=store,
+            api_key="test",
+            upper_threshold=0.95,
+            lower_threshold=0.90,
+        )
+
+        # Check and merge new memory
+        new = Memory(content="Alice really likes cats", user="alice")
+
+        with patch.object(store, 'find_similar') as mock_find:
+            from bicker_bot.memory.store import SearchResult
+            # Return high similarity match
+            mock_find.return_value = SearchResult(memory=old, distance=0.01)
+
+            result = await dedup.check_and_merge(new)
+
+        # Should have replaced old with new
+        assert result.content == new.content
+        assert store.count() == 0  # Old was deleted, new not yet added
