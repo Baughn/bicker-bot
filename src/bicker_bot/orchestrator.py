@@ -7,7 +7,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import uvicorn
+
 from bicker_bot.config import Config, get_bot_nicks
+from bicker_bot.debug.server import create_app
 from bicker_bot.core import (
     BickerChecker,
     ContextBuilder,
@@ -131,7 +134,22 @@ class Orchestrator:
                 logger.error(f"Failed to send error notification: {e}")
 
     async def start(self) -> None:
-        """Start the IRC connection and begin processing."""
+        """Start the IRC connection and debug server."""
+        # Create debug server
+        app = create_app(
+            trace_store=self._trace_store,
+            config_dir=Path("config"),
+            memory_store=self._memory_store,
+            replay_fn=self.replay,
+        )
+
+        # Start debug server in background
+        config = uvicorn.Config(app, host="127.0.0.1", port=8080, log_level="warning")
+        server = uvicorn.Server(config)
+        asyncio.create_task(server.serve())
+        logger.info("Debug server started on http://127.0.0.1:8080")
+
+        # Continue with IRC connection
         self._irc = IRCClient(
             config=self._config,
             on_message=self._handle_message,
