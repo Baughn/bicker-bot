@@ -733,8 +733,6 @@ class Orchestrator:
         )
 
         # Step 5: Response generation
-        from bicker_bot.personalities import get_personality_prompt
-
         response_result = await self._responder.generate(
             bot=selected_bot,
             system_prompt=get_personality_prompt(selected_bot, self._config),
