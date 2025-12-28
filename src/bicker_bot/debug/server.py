@@ -127,4 +127,33 @@ def create_app(
         success = memory_store.delete(memory_id)
         return {"success": success}
 
+    @app.get("/config/modal", response_class=HTMLResponse)
+    async def config_modal(request: Request):
+        """Config editor modal (htmx)."""
+        prompts = config_loader.list_prompts() if config_loader else []
+        prompt_configs = {}
+        if config_loader:
+            for name in prompts:
+                prompt_config = config_loader.get_prompt(name)
+                if prompt_config:
+                    prompt_configs[name] = prompt_config
+        policies = config_loader.get_policies() if config_loader else {}
+        return templates.TemplateResponse(
+            request,
+            "partials/config_modal.html",
+            {
+                "prompts": prompts,
+                "prompt_configs": prompt_configs,
+                "policies": policies,
+            },
+        )
+
+    @app.post("/config/reload")
+    async def reload_config():
+        """Hot-reload config from disk."""
+        if config_loader:
+            config_loader.reload()
+            return {"success": True}
+        return {"success": False, "error": "No config loader"}
+
     return app

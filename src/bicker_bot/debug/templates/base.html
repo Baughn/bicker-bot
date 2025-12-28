@@ -302,7 +302,11 @@
         <div class="nav-links">
             <a href="/traces" class="{% if request.url.path.startswith('/traces') %}active{% endif %}">Traces</a>
             <a href="/memories" class="{% if request.url.path.startswith('/memories') %}active{% endif %}">Memories</a>
-            <a href="/config" class="{% if request.url.path.startswith('/config') %}active{% endif %}">Config</a>
+            <a href="#"
+               hx-get="/config/modal"
+               hx-target="body"
+               hx-swap="beforeend"
+               class="{% if request.url.path.startswith('/config') %}active{% endif %}">Config</a>
         </div>
     </nav>
     <main>

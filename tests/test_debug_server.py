@@ -112,3 +112,114 @@ class TestDebugServer:
 
         response = client.get("/traces?bot=hachiman")
         assert response.status_code == 200
+
+
+class TestConfigModal:
+    """Tests for config modal routes."""
+
+    @pytest.fixture
+    def store(self, tmp_path: Path) -> TraceStore:
+        """Create a test trace store."""
+        return TraceStore(tmp_path / "traces.db")
+
+    @pytest.fixture
+    def config_dir(self, tmp_path: Path) -> Path:
+        """Create a config directory with test files."""
+        config_path = tmp_path / "config"
+        prompts_dir = config_path / "prompts"
+        prompts_dir.mkdir(parents=True)
+
+        # Create test prompt files
+        (prompts_dir / "merry.md").write_text("""---
+model: gemini-3-pro-preview
+max_tokens: 1024
+temperature: 0.9
+---
+
+You are Merry Nightmare, a dream demon.
+""")
+        (prompts_dir / "hachiman.md").write_text("""---
+model: claude-opus-4-5
+max_tokens: 2048
+---
+
+You are Hachiman Hikigaya.
+""")
+
+        # Create policies file
+        (config_path / "policies.yaml").write_text("""
+gate:
+  base_prob: 0.05
+  decay_factor: 0.5
+""")
+
+        return config_path
+
+    @pytest.fixture
+    def client(self, store: TraceStore, config_dir: Path) -> TestClient:
+        """Create a test client with config."""
+        app = create_app(
+            trace_store=store,
+            config_dir=config_dir,
+        )
+        return TestClient(app)
+
+    @pytest.fixture
+    def client_no_config(self, store: TraceStore, tmp_path: Path) -> TestClient:
+        """Create a test client without config."""
+        app = create_app(
+            trace_store=store,
+            config_dir=tmp_path / "nonexistent",
+        )
+        return TestClient(app)
+
+    def test_config_modal_with_prompts(self, client: TestClient):
+        """Test config modal shows prompts."""
+        response = client.get("/config/modal")
+        assert response.status_code == 200
+        assert "merry.md" in response.text
+        assert "hachiman.md" in response.text
+        assert "policies.yaml" in response.text
+
+    def test_config_modal_shows_prompt_content(self, client: TestClient):
+        """Test config modal displays prompt content."""
+        response = client.get("/config/modal")
+        assert response.status_code == 200
+        assert "Merry Nightmare" in response.text
+        assert "dream demon" in response.text
+
+    def test_config_modal_shows_prompt_metadata(self, client: TestClient):
+        """Test config modal displays prompt metadata."""
+        response = client.get("/config/modal")
+        assert response.status_code == 200
+        assert "gemini-3-pro-preview" in response.text
+        assert "1024" in response.text
+
+    def test_config_modal_shows_policies(self, client: TestClient):
+        """Test config modal displays policies."""
+        response = client.get("/config/modal")
+        assert response.status_code == 200
+        assert "base_prob" in response.text
+        assert "0.05" in response.text
+
+    def test_config_modal_no_config(self, client_no_config: TestClient):
+        """Test config modal works without config."""
+        response = client_no_config.get("/config/modal")
+        assert response.status_code == 200
+        # Should still render but with empty content
+        assert "policies.yaml" in response.text
+
+    def test_config_reload(self, client: TestClient, config_dir: Path):
+        """Test config reload endpoint."""
+        response = client.post("/config/reload")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+
+    def test_config_reload_no_config(self, client_no_config: TestClient):
+        """Test config reload without config loader."""
+        response = client_no_config.post("/config/reload")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert "error" in data
