@@ -5,6 +5,7 @@ import logging
 import random
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from bicker_bot.config import Config, get_bot_nicks
 from bicker_bot.core import (
@@ -20,6 +21,7 @@ from bicker_bot.core.logging import get_session_stats, log_timing
 from bicker_bot.irc.client import IRCClient, Message, MessageType
 from bicker_bot.memory import BotIdentity, BotSelector, MemoryExtractor, MemoryStore
 from bicker_bot.personalities import get_personality_prompt
+from bicker_bot.tracing import TraceContext, TraceStore
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,9 @@ class Orchestrator:
 
         # Message buffering: wait for 2s of silence before processing
         self._channel_buffers: dict[str, ChannelBuffer] = {}
+
+        # Trace storage for debug observability
+        self._trace_store = TraceStore(Path("data/traces.db"))
 
         logger.info("Orchestrator initialized")
 
@@ -369,7 +374,22 @@ class Orchestrator:
         pipeline_start = time.perf_counter()
         channel = message.channel
 
+        # Create trace context for this pipeline run
+        ctx = TraceContext(
+            channel=channel,
+            trigger_messages=[combined_content],
+            config_snapshot={},  # TODO: Use config loader snapshot
+        )
+
         # Skip gate and engagement for direct addresses
+        # Record that we bypassed gate/engagement
+        ctx.add_step(
+            stage="gate",
+            inputs={"message": combined_content},
+            outputs={"should_respond": True},
+            decision="Direct address bypasses gate",
+            details={"forced_bot": forced_bot.value},
+        )
 
         # Extract URLs from message for web fetching
         detected_urls = self._web_fetcher.extract_urls_from_text(combined_content)
@@ -395,6 +415,7 @@ class Orchestrator:
                 bot_identity=forced_bot,
                 bot_nickname=bot_nickname,
                 detected_urls=detected_urls,
+                trace_ctx=ctx,
             )
 
         # Generate response
@@ -407,6 +428,7 @@ class Orchestrator:
                 message=combined_content,
                 sender=message.sender,
                 detected_urls=detected_urls,
+                trace_ctx=ctx,
             )
 
         pipeline_elapsed = (time.perf_counter() - pipeline_start) * 1000
@@ -414,6 +436,10 @@ class Orchestrator:
             f"PIPELINE_COMPLETE (direct): bot={forced_bot.value} "
             f"messages={len(response_result.messages)} total={pipeline_elapsed:.0f}ms"
         )
+
+        # Save trace with final result
+        ctx.final_result = response_result.messages if response_result.messages else None
+        self._trace_store.save(ctx)
 
         return ProcessingResult(
             responded=bool(response_result.messages),
@@ -430,6 +456,13 @@ class Orchestrator:
         pipeline_start = time.perf_counter()
         channel = message.channel
 
+        # Create trace context for this pipeline run
+        ctx = TraceContext(
+            channel=channel,
+            trigger_messages=[message.content],
+            config_snapshot={},  # TODO: Use config loader snapshot
+        )
+
         # Get conversation context
         last_activity = await self._router.get_last_activity(channel)
         consecutive_bot = await self._router.count_consecutive_bot_messages(
@@ -443,6 +476,7 @@ class Orchestrator:
                 last_activity=last_activity,
                 consecutive_bot_messages=consecutive_bot,
                 is_mode_change=message.type == MessageType.MODE_CHANGE,
+                trace_ctx=ctx,
             )
 
         # Gate is a fast-path bypass: if it passes, skip engagement check
@@ -460,6 +494,7 @@ class Orchestrator:
                     recent_context=recent_context,
                     mentioned=gate_result.factors.mentioned,
                     is_question=gate_result.factors.is_question,
+                    trace_ctx=ctx,
                 )
 
             # Roll against engagement probability
@@ -469,6 +504,9 @@ class Orchestrator:
                     f"ENGAGE: P={engagement_result.probability:.3f} "
                     f"roll={roll:.3f} -> SKIP"
                 )
+                # Save trace before early exit
+                ctx.final_result = None
+                self._trace_store.save(ctx)
                 return ProcessingResult(
                     responded=False,
                     gate_passed=False,
@@ -519,6 +557,7 @@ class Orchestrator:
                 bot_identity=selected_bot,
                 bot_nickname=bot_nickname,
                 detected_urls=detected_urls,
+                trace_ctx=ctx,
             )
 
         # Step 5: Generate response
@@ -531,6 +570,7 @@ class Orchestrator:
                 message=message.content,
                 sender=message.sender,
                 detected_urls=detected_urls,
+                trace_ctx=ctx,
             )
 
         # Log pipeline completion
@@ -540,6 +580,10 @@ class Orchestrator:
             f"bot={selected_bot.value} rounds={context_result.rounds} "
             f"total={pipeline_elapsed:.0f}ms"
         )
+
+        # Save trace with final result
+        ctx.final_result = response_result.messages if response_result.messages else None
+        self._trace_store.save(ctx)
 
         return ProcessingResult(
             responded=bool(response_result.messages),
