@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,6 +16,10 @@ from bicker_bot.tracing import TraceStore
 
 if TYPE_CHECKING:
     from bicker_bot.memory.store import MemoryStore
+    from bicker_bot.orchestrator import ReplayResult
+
+# Type alias for the replay function signature
+ReplayFn = Callable[[str, dict], Awaitable["ReplayResult"]]
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +31,7 @@ def create_app(
     trace_store: TraceStore,
     config_dir: Path | None = None,
     memory_store: MemoryStore | None = None,
-    replay_fn: Callable | None = None,
+    replay_fn: ReplayFn | None = None,
 ) -> FastAPI:
     """Create the debug server FastAPI app.
 
@@ -35,7 +39,8 @@ def create_app(
         trace_store: The trace store for retrieving saved traces.
         config_dir: Optional directory containing prompt/policy configs.
         memory_store: Optional memory store for browsing memories (future use).
-        replay_fn: Optional function to replay a trace (future use).
+        replay_fn: Optional async function to replay a trace with config overrides.
+                   Signature: async (trace_id: str, config_overrides: dict) -> ReplayResult
 
     Returns:
         A configured FastAPI application.
@@ -155,5 +160,32 @@ def create_app(
             config_loader.reload()
             return {"success": True}
         return {"success": False, "error": "No config loader"}
+
+    @app.post("/traces/{trace_id}/replay", response_class=HTMLResponse)
+    async def replay_trace(request: Request, trace_id: str):
+        """Replay a trace with current/modified config for A/B comparison."""
+        if replay_fn is None:
+            return HTMLResponse("Replay not available", status_code=503)
+
+        original = trace_store.get(trace_id)
+        if original is None:
+            return HTMLResponse("Trace not found", status_code=404)
+
+        try:
+            # Run replay with empty config overrides (use current config)
+            replay_result = await replay_fn(trace_id, {})
+
+            return templates.TemplateResponse(
+                request,
+                "partials/replay_comparison.html",
+                {
+                    "original": replay_result.original,
+                    "replayed": replay_result.replayed,
+                    "decision_diffs": replay_result.decision_diffs,
+                },
+            )
+        except Exception as e:
+            logger.exception(f"Replay failed for trace {trace_id}")
+            return HTMLResponse(f"Replay failed: {e}", status_code=500)
 
     return app

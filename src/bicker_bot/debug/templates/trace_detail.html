@@ -5,8 +5,21 @@
 {% block content %}
 <div class="flex justify-between items-center mb-2">
     <h1>Trace Detail</h1>
-    <a href="/traces" class="btn btn-secondary">Back to Traces</a>
+    <div class="flex gap-1">
+        <button class="btn"
+                hx-post="/traces/{{ trace.id }}/replay"
+                hx-target="#replay-container"
+                hx-swap="innerHTML"
+                hx-indicator="#replay-spinner">
+            Replay
+        </button>
+        <span id="replay-spinner" class="htmx-indicator" style="align-self: center;">Loading...</span>
+        <a href="/traces" class="btn btn-secondary">Back to Traces</a>
+    </div>
 </div>
+
+<!-- Container for replay comparison results -->
+<div id="replay-container"></div>
 
 <!-- Trace Header -->
 <div class="card">

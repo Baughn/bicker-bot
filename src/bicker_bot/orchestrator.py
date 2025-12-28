@@ -43,6 +43,15 @@ class ProcessingResult:
 
 
 @dataclass
+class ReplayResult:
+    """Result of replaying a trace for A/B comparison."""
+
+    original: TraceContext
+    replayed: TraceContext
+    decision_diffs: list[dict]  # [{stage, original_decision, replayed_decision, diverged}]
+
+
+@dataclass
 class ChannelBuffer:
     """Buffer for messages in a single channel."""
 
@@ -613,3 +622,183 @@ class Orchestrator:
             )
         except Exception as e:
             logger.error(f"Memory extraction failed: {e}")
+
+    async def replay(
+        self, trace_id: str, config_overrides: dict | None = None
+    ) -> ReplayResult:
+        """Replay a trace with optional config overrides.
+
+        Runs the pipeline in dry-run mode (no IRC, no memory writes).
+
+        Args:
+            trace_id: ID of the original trace to replay
+            config_overrides: Optional config values to override for replay
+
+        Returns:
+            ReplayResult with original trace, replayed trace, and decision diffs
+
+        Raises:
+            ValueError: If trace not found
+        """
+        original = self._trace_store.get(trace_id)
+        if original is None:
+            raise ValueError(f"Trace {trace_id} not found")
+
+        # Get trigger text from original
+        trigger_text = original.trigger_messages[0] if original.trigger_messages else ""
+
+        # Create replay trace context
+        replay_ctx = TraceContext(
+            channel=original.channel,
+            trigger_messages=original.trigger_messages,
+            config_snapshot=config_overrides or {},
+            is_replay=True,
+            original_trace_id=original.id,
+        )
+
+        # Build a mock message for the pipeline
+        message = Message(
+            channel=original.channel,
+            sender="replay",  # placeholder sender
+            content=trigger_text,
+        )
+
+        # Run pipeline components manually in dry-run mode
+        # (Skip IRC sending and memory extraction)
+
+        # Step 1: Gate check
+        gate_result = self._gate.should_respond(
+            message=trigger_text,
+            last_activity=None,  # No activity tracking in replay
+            consecutive_bot_messages=0,
+            is_mode_change=False,
+            trace_ctx=replay_ctx,
+        )
+
+        # For replay, continue even if gate fails (to show what would happen)
+
+        # Step 2: Engagement check (if gate didn't pass)
+        if not gate_result.should_respond:
+            # Use empty context for replay engagement check
+            engagement_result = await self._engagement.check(
+                message=trigger_text,
+                recent_context="",  # No context available in replay
+                mentioned=gate_result.factors.mentioned,
+                is_question=gate_result.factors.is_question,
+                trace_ctx=replay_ctx,
+            )
+            # For replay, continue regardless of result
+
+        # Step 3: Bot selection
+        if gate_result.factors.directly_addressed and gate_result.factors.addressed_bot:
+            nick_lower = gate_result.factors.addressed_bot
+            if nick_lower == self._config.irc.nick_merry.lower():
+                selected_bot = BotIdentity.MERRY
+            else:
+                selected_bot = BotIdentity.HACHIMAN
+        else:
+            selection = self._bot_selector.select(trigger_text)
+            selected_bot = selection.selected
+
+        # Record bot selection in replay context
+        replay_ctx.add_step(
+            stage="selector",
+            inputs={"message": trigger_text},
+            outputs={"selected": selected_bot.value},
+            decision=f"Selected {selected_bot.value}",
+        )
+
+        # Step 4: Context building
+        bot_nickname = (
+            self._config.irc.nick_merry
+            if selected_bot == BotIdentity.MERRY
+            else self._config.irc.nick_hachiman
+        )
+
+        # Get high intensity memories if sender was recorded
+        high_intensity: list[str] = []  # Empty for replay without real sender
+
+        # Extract URLs from message
+        detected_urls = self._web_fetcher.extract_urls_from_text(trigger_text)
+
+        context_result = await self._context_builder.build(
+            message=trigger_text,
+            recent_context="",  # No recent context in replay
+            sender="replay",
+            high_intensity_memories=high_intensity,
+            bot_identity=selected_bot,
+            bot_nickname=bot_nickname,
+            detected_urls=detected_urls,
+            trace_ctx=replay_ctx,
+        )
+
+        # Step 5: Response generation
+        from bicker_bot.personalities import get_personality_prompt
+
+        response_result = await self._responder.generate(
+            bot=selected_bot,
+            system_prompt=get_personality_prompt(selected_bot, self._config),
+            context_summary=context_result.summary,
+            recent_conversation="",  # No recent conversation in replay
+            message=trigger_text,
+            sender="replay",
+            detected_urls=detected_urls,
+            trace_ctx=replay_ctx,
+        )
+
+        # Set final result
+        replay_ctx.final_result = (
+            response_result.messages if response_result.messages else None
+        )
+
+        # Save replay trace
+        self._trace_store.save(replay_ctx)
+
+        # Compare decisions between original and replayed
+        decision_diffs = []
+        for orig_step in original.steps:
+            replay_step = next(
+                (s for s in replay_ctx.steps if s.stage == orig_step.stage), None
+            )
+            if replay_step:
+                decision_diffs.append({
+                    "stage": orig_step.stage,
+                    "original_decision": orig_step.decision,
+                    "replayed_decision": replay_step.decision,
+                    "diverged": orig_step.decision != replay_step.decision,
+                })
+            else:
+                # Original step not present in replay
+                decision_diffs.append({
+                    "stage": orig_step.stage,
+                    "original_decision": orig_step.decision,
+                    "replayed_decision": "(not executed)",
+                    "diverged": True,
+                })
+
+        # Check for steps in replay not in original
+        original_stages = {s.stage for s in original.steps}
+        for replay_step in replay_ctx.steps:
+            if replay_step.stage not in original_stages:
+                decision_diffs.append({
+                    "stage": replay_step.stage,
+                    "original_decision": "(not executed)",
+                    "replayed_decision": replay_step.decision,
+                    "diverged": True,
+                })
+
+        logger.info(
+            f"REPLAY_COMPLETE: trace={trace_id[:8]}... "
+            f"diffs={sum(1 for d in decision_diffs if d['diverged'])}/{len(decision_diffs)}"
+        )
+
+        return ReplayResult(
+            original=original,
+            replayed=replay_ctx,
+            decision_diffs=decision_diffs,
+        )
+
+    @property
+    def trace_store(self) -> TraceStore:
+        """Expose trace store for debug server."""
+        return self._trace_store

@@ -1,0 +1,309 @@
+<!-- Replay Comparison Partial (loads via HTMX) -->
+<div class="replay-comparison">
+    <div class="replay-header">
+        <h2>Replay Comparison</h2>
+        <button class="btn btn-secondary" onclick="this.closest('.replay-comparison').remove()">Close</button>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="replay-summary">
+        <div class="stat">
+            <span class="stat-label">Original ID:</span>
+            <code>{{ original.id[:8] }}...</code>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Replay ID:</span>
+            <code>{{ replayed.id[:8] }}...</code>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Divergences:</span>
+            <span class="{% if decision_diffs|selectattr('diverged')|list|length > 0 %}text-warning{% else %}text-success{% endif %}">
+                {{ decision_diffs|selectattr('diverged')|list|length }} / {{ decision_diffs|length }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Decision Diffs Table -->
+    {% if decision_diffs %}
+    <div class="card mb-2">
+        <div class="card-header">
+            <h3>Decision Comparison</h3>
+        </div>
+        <table class="decision-table">
+            <thead>
+                <tr>
+                    <th>Stage</th>
+                    <th>Original Decision</th>
+                    <th>Replayed Decision</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for diff in decision_diffs %}
+                <tr class="{% if diff.diverged %}row-diverged{% endif %}">
+                    <td><strong>{{ diff.stage | capitalize }}</strong></td>
+                    <td class="decision-cell">
+                        <span class="decision-text">{{ diff.original_decision[:80] }}{% if diff.original_decision|length > 80 %}...{% endif %}</span>
+                    </td>
+                    <td class="decision-cell">
+                        <span class="decision-text">{{ diff.replayed_decision[:80] }}{% if diff.replayed_decision|length > 80 %}...{% endif %}</span>
+                    </td>
+                    <td>
+                        {% if diff.diverged %}
+                        <span class="badge badge-warning">Diverged</span>
+                        {% else %}
+                        <span class="badge badge-success">Match</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Side-by-Side Traces -->
+    <div class="traces-side-by-side">
+        <!-- Original Trace -->
+        <div class="trace-column">
+            <div class="trace-column-header original">
+                <h3>Original</h3>
+                <span class="text-muted">{{ original.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+            </div>
+
+            <!-- Final Result -->
+            <div class="card">
+                <div class="card-header">
+                    <span>Final Response</span>
+                    {% if original.final_result %}
+                    <span class="badge badge-responded">responded</span>
+                    {% else %}
+                    <span class="badge badge-declined_gate">no response</span>
+                    {% endif %}
+                </div>
+                {% if original.final_result %}
+                    {% for msg in original.final_result %}
+                    <pre>{{ msg }}</pre>
+                    {% endfor %}
+                {% else %}
+                <p class="text-muted">No response generated.</p>
+                {% endif %}
+            </div>
+
+            <!-- Steps -->
+            {% for step in original.steps %}
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-stage">{{ step.stage | capitalize }}</span>
+                    {% if step.model %}
+                    <span class="text-muted text-small">{{ step.model }}</span>
+                    {% endif %}
+                </div>
+                <div class="step-decision">{{ step.decision }}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Replayed Trace -->
+        <div class="trace-column">
+            <div class="trace-column-header replayed">
+                <h3>Replayed</h3>
+                <span class="text-muted">{{ replayed.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+            </div>
+
+            <!-- Final Result -->
+            <div class="card">
+                <div class="card-header">
+                    <span>Final Response</span>
+                    {% if replayed.final_result %}
+                    <span class="badge badge-responded">responded</span>
+                    {% else %}
+                    <span class="badge badge-declined_gate">no response</span>
+                    {% endif %}
+                </div>
+                {% if replayed.final_result %}
+                    {% for msg in replayed.final_result %}
+                    <pre>{{ msg }}</pre>
+                    {% endfor %}
+                {% else %}
+                <p class="text-muted">No response generated.</p>
+                {% endif %}
+            </div>
+
+            <!-- Steps -->
+            {% for step in replayed.steps %}
+            <div class="step-card">
+                <div class="step-header">
+                    <span class="step-stage">{{ step.stage | capitalize }}</span>
+                    {% if step.model %}
+                    <span class="text-muted text-small">{{ step.model }}</span>
+                    {% endif %}
+                </div>
+                <div class="step-decision">{{ step.decision }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<style>
+    .replay-comparison {
+        background-color: var(--bg-secondary);
+        border: 2px solid var(--info);
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .replay-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .replay-header h2 {
+        margin-bottom: 0;
+        color: var(--info);
+    }
+
+    .replay-summary {
+        display: flex;
+        gap: 2rem;
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background-color: var(--bg-tertiary);
+        border-radius: 4px;
+    }
+
+    .stat {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .stat-label {
+        color: var(--text-muted);
+    }
+
+    .text-success {
+        color: var(--success);
+    }
+
+    .text-warning {
+        color: var(--warning);
+    }
+
+    .decision-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .decision-table th,
+    .decision-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .decision-table th {
+        background-color: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+    }
+
+    .decision-cell {
+        max-width: 300px;
+    }
+
+    .decision-text {
+        font-size: 0.875rem;
+        word-wrap: break-word;
+    }
+
+    .row-diverged {
+        background-color: rgba(251, 191, 36, 0.1);
+    }
+
+    .badge-warning {
+        background-color: var(--warning);
+        color: var(--bg-primary);
+    }
+
+    .badge-success {
+        background-color: var(--success);
+        color: var(--bg-primary);
+    }
+
+    .traces-side-by-side {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .trace-column {
+        min-width: 0;
+    }
+
+    .trace-column-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border-radius: 4px 4px 0 0;
+        margin-bottom: 0.5rem;
+    }
+
+    .trace-column-header.original {
+        background-color: var(--bg-tertiary);
+        border-left: 3px solid var(--text-muted);
+    }
+
+    .trace-column-header.replayed {
+        background-color: var(--bg-tertiary);
+        border-left: 3px solid var(--info);
+    }
+
+    .trace-column-header h3 {
+        margin-bottom: 0;
+    }
+
+    .step-card {
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .step-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .step-stage {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .step-decision {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        word-wrap: break-word;
+    }
+
+    .text-small {
+        font-size: 0.75rem;
+    }
+
+    @media (max-width: 1200px) {
+        .traces-side-by-side {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
