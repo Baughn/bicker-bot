@@ -1,6 +1,11 @@
 """Tests for tracing data model."""
 
+from pathlib import Path
+
+import pytest
+
 from bicker_bot.tracing.context import TraceContext, TraceStep
+from bicker_bot.tracing.store import TraceStore
 
 
 class TestTraceStep:
@@ -171,3 +176,78 @@ class TestTraceContext:
         )
         assert ctx.is_replay is True
         assert ctx.original_trace_id == "abc123"
+
+
+class TestTraceStore:
+    """Tests for TraceStore."""
+
+    @pytest.fixture
+    def store(self, tmp_path: Path) -> TraceStore:
+        """Create a temporary trace store."""
+        db_path = tmp_path / "traces.db"
+        return TraceStore(db_path)
+
+    def test_save_and_get(self, store: TraceStore):
+        """Test saving and retrieving a trace."""
+        ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["hello"],
+            config_snapshot={"key": "value"},
+        )
+        ctx.add_step("gate", {"a": 1}, {"b": 2}, "test decision")
+        ctx.final_result = ["response"]
+
+        store.save(ctx)
+        retrieved = store.get(ctx.id)
+
+        assert retrieved is not None
+        assert retrieved.id == ctx.id
+        assert retrieved.channel == "#test"
+        assert len(retrieved.steps) == 1
+
+    def test_get_nonexistent(self, store: TraceStore):
+        """Test getting a trace that doesn't exist."""
+        result = store.get("nonexistent-id")
+        assert result is None
+
+    def test_recent(self, store: TraceStore):
+        """Test getting recent traces."""
+        for i in range(5):
+            ctx = TraceContext(
+                channel="#test",
+                trigger_messages=[f"msg{i}"],
+                config_snapshot={},
+            )
+            ctx.final_result = [f"response{i}"]
+            store.save(ctx)
+
+        recent = store.recent(limit=3)
+        assert len(recent) == 3
+
+    def test_recent_filter_by_channel(self, store: TraceStore):
+        """Test filtering recent traces by channel."""
+        for channel in ["#a", "#a", "#b"]:
+            ctx = TraceContext(
+                channel=channel,
+                trigger_messages=["test"],
+                config_snapshot={},
+            )
+            store.save(ctx)
+
+        recent = store.recent(channel="#a")
+        assert len(recent) == 2
+        assert all(t.channel == "#a" for t in recent)
+
+    def test_prune(self, store: TraceStore):
+        """Test pruning old traces."""
+        for i in range(10):
+            ctx = TraceContext(
+                channel="#test",
+                trigger_messages=[f"msg{i}"],
+                config_snapshot={},
+            )
+            store.save(ctx)
+
+        deleted = store.prune(keep_last=3)
+        assert deleted == 7
+        assert len(store.recent(limit=100)) == 3
