@@ -1,0 +1,31 @@
+# Response gate configuration
+# Controls when bots should respond to messages
+gate:
+  # Baseline probability of responding to any message
+  base_prob: 0.05
+  # Probability bonus when bot is directly mentioned
+  mention_prob: 0.8
+  # Probability bonus for question messages
+  question_prob: 0.3
+  # Probability bonus when conversation just started (after silence)
+  conversation_start_prob: 0.4
+  # Probability bonus on mode/topic changes
+  mode_change_prob: 0.9
+  # Decay factor applied per consecutive bot message (prevents runaway bickering)
+  decay_factor: 0.5
+  # Minutes of silence before considering it a new conversation
+  silence_threshold_minutes: 5
+
+# Context building configuration
+context:
+  # Maximum tool use rounds before forcing a summary
+  max_tool_rounds: 3
+  # Number of results to return from RAG search
+  rag_top_k: 5
+
+# Memory/RAG configuration
+memory:
+  # Enable automatic memory extraction after responses
+  extraction_enabled: true
+  # Threshold above which memories are always included in context
+  high_intensity_threshold: 0.7
