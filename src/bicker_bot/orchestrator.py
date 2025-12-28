@@ -112,7 +112,9 @@ class Orchestrator:
             web_fetcher=self._web_fetcher,
             on_error_notify=self._notify_error,
         )
-        self._extractor = MemoryExtractor(google_key, self._memory_store)
+        self._extractor = MemoryExtractor(
+            google_key, self._memory_store, dedup_config=config.memory
+        )
 
         self._irc: IRCClient | None = None
         self._error_notify_channel: str | None = None  # Set after IRC connects
