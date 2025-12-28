@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Traces - Bicker-Bot Debug{% endblock %}
+
+{% block content %}
+<h1>Traces</h1>
+
+<div class="filter-bar">
+    <form method="get" action="/traces" class="flex gap-1 items-center">
+        <input type="text" name="channel" placeholder="Filter by channel..."
+               value="{{ channel_filter or '' }}">
+        <select name="bot">
+            <option value="">All bots</option>
+            <option value="merry" {% if bot_filter == 'merry' %}selected{% endif %}>Merry</option>
+            <option value="hachiman" {% if bot_filter == 'hachiman' %}selected{% endif %}>Hachiman</option>
+        </select>
+        <button type="submit" class="btn">Filter</button>
+        {% if channel_filter or bot_filter %}
+        <a href="/traces" class="btn btn-secondary">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+{% if traces %}
+<table>
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>Channel</th>
+            <th>Bot</th>
+            <th>Trigger</th>
+            <th>Outcome</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for trace in traces %}
+        <tr>
+            <td>
+                <a href="/traces/{{ trace.id }}">
+                    {{ trace.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                </a>
+            </td>
+            <td>{{ trace.channel }}</td>
+            <td>
+                {% if trace.bot %}
+                <span class="badge badge-{{ trace.bot }}">{{ trace.bot }}</span>
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+            </td>
+            <td class="text-secondary">
+                {{ trace.trigger_text[:60] }}{% if trace.trigger_text|length > 60 %}...{% endif %}
+            </td>
+            <td>
+                <span class="badge badge-{{ trace.outcome }}">{{ trace.outcome.replace('_', ' ') }}</span>
+                {% if trace.is_replay %}
+                <span class="badge badge-replay">replay</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No traces found.</p>
+    {% if channel_filter or bot_filter %}
+    <p class="mt-1">Try adjusting your filters or <a href="/traces">clearing them</a>.</p>
+    {% else %}
+    <p class="mt-1">Traces will appear here as the bot processes messages.</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

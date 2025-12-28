@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}Trace {{ trace.id[:8] }}... - Bicker-Bot Debug{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-2">
+    <h1>Trace Detail</h1>
+    <a href="/traces" class="btn btn-secondary">Back to Traces</a>
+</div>
+
+<!-- Trace Header -->
+<div class="card">
+    <div class="card-header">
+        <h2>Overview</h2>
+        {% if trace.is_replay %}
+        <span class="badge badge-replay">Replay of {{ trace.original_trace_id[:8] if trace.original_trace_id else 'unknown' }}...</span>
+        {% endif %}
+    </div>
+    <div class="flex gap-2">
+        <div>
+            <span class="text-muted">ID:</span>
+            <code>{{ trace.id }}</code>
+        </div>
+        <div>
+            <span class="text-muted">Channel:</span>
+            {{ trace.channel }}
+        </div>
+        <div>
+            <span class="text-muted">Started:</span>
+            {{ trace.started_at.strftime('%Y-%m-%d %H:%M:%S') }}
+        </div>
+    </div>
+</div>
+
+<!-- Trigger Messages -->
+<div class="card">
+    <div class="card-header">
+        <h2>Trigger Messages</h2>
+    </div>
+    {% for msg in trace.trigger_messages %}
+    <pre>{{ msg }}</pre>
+    {% if not loop.last %}<div class="mb-1"></div>{% endif %}
+    {% endfor %}
+</div>
+
+<!-- Final Result -->
+<div class="card">
+    <div class="card-header">
+        <h2>Final Response</h2>
+        {% if trace.final_result %}
+        <span class="badge badge-responded">responded</span>
+        {% else %}
+        <span class="badge badge-declined_gate">no response</span>
+        {% endif %}
+    </div>
+    {% if trace.final_result %}
+        {% for msg in trace.final_result %}
+        <pre>{{ msg }}</pre>
+        {% if not loop.last %}<div class="mb-1"></div>{% endif %}
+        {% endfor %}
+    {% else %}
+    <p class="text-muted">The bot chose not to respond.</p>
+    {% endif %}
+</div>
+
+<!-- Pipeline Steps -->
+<div class="card">
+    <div class="card-header">
+        <h2>Pipeline Steps</h2>
+        <span class="text-muted">{{ trace.steps|length }} steps</span>
+    </div>
+
+    {% if trace.steps %}
+    {% for step in trace.steps %}
+    <div class="card" style="margin-left: 0; margin-right: 0; background-color: var(--bg-primary);">
+        <div class="collapsible card-header">
+            <div class="flex gap-1 items-center">
+                <span style="font-size: 0.8rem;">{% if step.model %}&#x1F4AC;{% else %}&#x2699;{% endif %}</span>
+                <h3>{{ step.stage | capitalize }}</h3>
+                {% if step.model %}
+                <span class="text-muted text-secondary" style="font-size: 0.8rem;">{{ step.model }}</span>
+                {% endif %}
+            </div>
+            <div class="flex gap-1 items-center">
+                <span class="text-secondary" style="font-size: 0.875rem;">{{ step.decision[:50] }}{% if step.decision|length > 50 %}...{% endif %}</span>
+                <span class="text-muted" style="font-size: 0.75rem;">&#x25BC;</span>
+            </div>
+        </div>
+        <div class="collapsible-content">
+            <!-- Inputs -->
+            <div class="mb-1">
+                <strong class="text-muted">Inputs:</strong>
+                <pre>{{ step.inputs | tojson(indent=2) }}</pre>
+            </div>
+
+            <!-- Outputs -->
+            <div class="mb-1">
+                <strong class="text-muted">Outputs:</strong>
+                <pre>{{ step.outputs | tojson(indent=2) }}</pre>
+            </div>
+
+            <!-- Decision -->
+            <div class="mb-1">
+                <strong class="text-muted">Decision:</strong>
+                <span>{{ step.decision }}</span>
+            </div>
+
+            {% if step.details %}
+            <div class="mb-1">
+                <strong class="text-muted">Details:</strong>
+                <pre>{{ step.details | tojson(indent=2) }}</pre>
+            </div>
+            {% endif %}
+
+            <!-- LLM-specific fields -->
+            {% if step.model %}
+            <div class="mt-2">
+                <strong class="text-muted">Model:</strong>
+                <span>{{ step.model }}</span>
+            </div>
+
+            {% if step.prompt %}
+            <div class="mt-1">
+                <strong class="text-muted">Prompt:</strong>
+                <pre>{{ step.prompt }}</pre>
+            </div>
+            {% endif %}
+
+            {% if step.raw_response %}
+            <div class="mt-1">
+                <strong class="text-muted">Raw Response:</strong>
+                <pre>{{ step.raw_response }}</pre>
+            </div>
+            {% endif %}
+
+            {% if step.thinking %}
+            <div class="mt-1">
+                <strong class="text-muted">Thinking:</strong>
+                <pre>{{ step.thinking }}</pre>
+            </div>
+            {% endif %}
+
+            {% if step.thought_signatures %}
+            <div class="mt-1">
+                <strong class="text-muted">Thought Signatures:</strong>
+                <ul>
+                    {% for sig in step.thought_signatures %}
+                    <li><code>{{ sig }}</code></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if step.token_usage %}
+            <div class="mt-1">
+                <strong class="text-muted">Token Usage:</strong>
+                <span>
+                    Input: {{ step.token_usage.get('input', 'N/A') }},
+                    Output: {{ step.token_usage.get('output', 'N/A') }}
+                </span>
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-muted">No pipeline steps recorded.</p>
+    {% endif %}
+</div>
+
+<!-- Config Snapshot -->
+{% if trace.config_snapshot %}
+<div class="card">
+    <div class="collapsible card-header">
+        <h2>Config Snapshot</h2>
+        <span class="text-muted" style="font-size: 0.75rem;">&#x25BC;</span>
+    </div>
+    <div class="collapsible-content">
+        <pre>{{ trace.config_snapshot | tojson(indent=2) }}</pre>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
