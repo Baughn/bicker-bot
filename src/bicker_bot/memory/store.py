@@ -207,7 +207,9 @@ class MemoryStore:
                     user=metadata.get("user") or None,
                     memory_type=MemoryType(metadata.get("type", "fact")),
                     intensity=float(metadata.get("intensity", 0.5)),
-                    timestamp=datetime.fromisoformat(metadata.get("timestamp", datetime.now().isoformat())),
+                    timestamp=datetime.fromisoformat(
+                        metadata.get("timestamp", datetime.now().isoformat())
+                    ),
                 )
 
                 search_results.append(SearchResult(memory=memory, distance=distance))
@@ -221,7 +223,8 @@ class MemoryStore:
 
         # Log top results at DEBUG
         for i, sr in enumerate(search_results[:3]):
-            content_preview = sr.memory.content[:50] + "..." if len(sr.memory.content) > 50 else sr.memory.content
+            content = sr.memory.content
+            content_preview = content[:50] + "..." if len(content) > 50 else content
             logger.debug(f"  #{i+1}: sim={sr.similarity:.3f} '{content_preview}'")
 
         # Log RAG results for AI debug

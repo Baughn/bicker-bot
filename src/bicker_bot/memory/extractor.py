@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 EXTRACTION_SYSTEM_PROMPT = """You are a memory extractor for an IRC chatbot system.
-Your job is to identify memorable facts from conversations that should be stored for future reference.
+Your job is to identify memorable facts from conversations that should be stored
+for future reference.
 
 Extract information that would be useful to remember about users, including:
 - Personal information they share (interests, job, location, etc.)
@@ -56,12 +57,13 @@ For each memory, provide:
   - 0.4: Topic interests, recurring patterns
   - 0.2: Minor observations, casual mentions
 
-Respond with a JSON array of memory objects. If there's nothing worth remembering, return an empty array [].
+Respond with a JSON array of memory objects.
+If there's nothing worth remembering, return an empty array [].
 
 Be selective - don't record every message, only genuinely memorable information.
 Prefer richer, more contextual memories over short fragments.
 
-Good: "Alice mentioned she adopted a rescue cat named Whiskers in 2023 after her previous cat passed away"
+Good: "Alice adopted a rescue cat named Whiskers in 2023 after her previous cat passed"
 Bad: "Alice has a cat"
 """
 

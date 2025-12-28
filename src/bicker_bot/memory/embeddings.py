@@ -2,7 +2,6 @@
 
 import logging
 from functools import lru_cache
-from typing import Any
 
 import torch
 from chromadb import EmbeddingFunction
