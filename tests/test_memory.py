@@ -175,6 +175,34 @@ class TestMemoryStore:
         memory_store.clear()
         assert memory_store.count() == 0
 
+    def test_find_similar_returns_match(self, memory_store: MemoryStore):
+        """Test finding similar memories above threshold."""
+        memory_store.add(Memory(content="Alice likes cats"))
+        memory_store.add(Memory(content="Bob likes dogs"))
+
+        # Search for similar content - with mock embeddings we just verify
+        # that a result is returned when threshold is low enough
+        result = memory_store.find_similar("Alice really loves cats", threshold=0.5)
+
+        # With mock embeddings, we should get some result above 0.5 threshold
+        assert result is not None
+        assert isinstance(result, SearchResult)
+        assert result.memory.content in ["Alice likes cats", "Bob likes dogs"]
+
+    def test_find_similar_returns_none_below_threshold(self, memory_store: MemoryStore):
+        """Test that find_similar returns None when no match above threshold."""
+        memory_store.add(Memory(content="Alice likes cats"))
+
+        # Very high threshold should return None
+        result = memory_store.find_similar("Something completely different", threshold=0.99)
+
+        assert result is None
+
+    def test_find_similar_empty_store(self, memory_store: MemoryStore):
+        """Test find_similar on empty store returns None."""
+        result = memory_store.find_similar("Any query", threshold=0.5)
+        assert result is None
+
 
 class TestBotSelector:
     """Tests for BotSelector."""

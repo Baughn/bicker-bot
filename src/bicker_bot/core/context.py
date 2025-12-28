@@ -11,7 +11,8 @@ from google.genai import types
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
 from bicker_bot.core.web import WebFetcher, WebPageResult
-from bicker_bot.memory import BotIdentity, Memory, MemoryStore
+from bicker_bot.memory.selector import BotIdentity
+from bicker_bot.memory.store import Memory, MemoryStore
 from bicker_bot.tracing import TraceContext
 
 logger = logging.getLogger(__name__)

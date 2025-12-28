@@ -315,3 +315,64 @@ class MemoryStore:
             metadata={"hnsw:space": "cosine"},
         )
         logger.warning("Cleared all memories")
+
+    def find_similar(
+        self,
+        content: str,
+        threshold: float = 0.90,
+        exclude_id: str | None = None,
+    ) -> SearchResult | None:
+        """Find the most similar existing memory above threshold.
+
+        Args:
+            content: Content to search for
+            threshold: Minimum similarity threshold (0-1, cosine similarity)
+            exclude_id: Optional memory ID to exclude from results
+
+        Returns:
+            Most similar memory above threshold, or None
+        """
+        if self._collection.count() == 0:
+            return None
+
+        # Query for single closest match
+        query_embedding = self._embedding_fn.embed_query(content)
+        results = self._collection.query(
+            query_embeddings=[query_embedding],
+            n_results=1,
+            include=["documents", "metadatas", "distances"],
+        )
+
+        if not results["ids"] or not results["ids"][0]:
+            return None
+
+        memory_id = results["ids"][0][0]
+
+        # Skip if this is the excluded ID
+        if exclude_id and memory_id == exclude_id:
+            return None
+
+        distance = results["distances"][0][0] if results["distances"] else 0.0
+
+        # Convert cosine distance to similarity
+        # ChromaDB with cosine space returns distance = 1 - similarity
+        similarity = 1.0 - distance
+
+        if similarity < threshold:
+            return None
+
+        metadata = results["metadatas"][0][0] if results["metadatas"] else {}
+        document = results["documents"][0][0] if results["documents"] else ""
+
+        memory = Memory(
+            id=memory_id,
+            content=document,
+            user=metadata.get("user") or None,
+            memory_type=MemoryType(metadata.get("type", "fact")),
+            intensity=float(metadata.get("intensity", 0.5)),
+            timestamp=datetime.fromisoformat(
+                metadata.get("timestamp", datetime.now().isoformat())
+            ),
+        )
+
+        return SearchResult(memory=memory, distance=distance)
