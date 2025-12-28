@@ -1,5 +1,5 @@
 """Tracing module for debug observability."""
 
-from bicker_bot.tracing.context import TraceStep
+from bicker_bot.tracing.context import TraceContext, TraceStep
 
-__all__ = ["TraceStep"]
+__all__ = ["TraceContext", "TraceStep"]

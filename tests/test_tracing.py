@@ -1,6 +1,6 @@
 """Tests for tracing data model."""
 
-from bicker_bot.tracing.context import TraceStep
+from bicker_bot.tracing.context import TraceContext, TraceStep
 
 
 class TestTraceStep:
@@ -85,3 +85,89 @@ class TestTraceStep:
         assert step.stage == "responder"
         assert step.model == "claude-opus-4-5-20251101"
         assert step.thinking == "thinking block"
+
+
+class TestTraceContext:
+    """Tests for TraceContext."""
+
+    def test_create_context(self):
+        """Test creating a trace context."""
+        ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["hello world"],
+            config_snapshot={"gate": {"base_prob": 0.05}},
+        )
+        assert ctx.id is not None
+        assert ctx.channel == "#test"
+        assert ctx.trigger_messages == ["hello world"]
+        assert ctx.steps == []
+        assert ctx.is_replay is False
+
+    def test_add_step(self):
+        """Test adding steps to context."""
+        ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["test"],
+            config_snapshot={},
+        )
+        ctx.add_step(
+            stage="gate",
+            inputs={"msg": "test"},
+            outputs={"prob": 0.5},
+            decision="declined",
+        )
+        assert len(ctx.steps) == 1
+        assert ctx.steps[0].stage == "gate"
+
+    def test_add_llm_step(self):
+        """Test adding LLM step with extra fields."""
+        ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["test"],
+            config_snapshot={},
+        )
+        ctx.add_llm_step(
+            stage="engagement",
+            inputs={"msg": "test"},
+            outputs={"prob": 0.8},
+            decision="engaged",
+            model="gemini-3-flash-preview",
+            prompt="Is this engaging?",
+            raw_response='{"probability": 80}',
+            thinking=None,
+            thought_signatures=["sig1"],
+            token_usage={"input": 100, "output": 50},
+        )
+        assert len(ctx.steps) == 1
+        step = ctx.steps[0]
+        assert step.model == "gemini-3-flash-preview"
+        assert step.thought_signatures == ["sig1"]
+
+    def test_to_dict_and_back(self):
+        """Test round-trip serialization."""
+        ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["hello"],
+            config_snapshot={"key": "value"},
+        )
+        ctx.add_step("gate", {"a": 1}, {"b": 2}, "test")
+
+        d = ctx.to_dict()
+        restored = TraceContext.from_dict(d)
+
+        assert restored.id == ctx.id
+        assert restored.channel == ctx.channel
+        assert len(restored.steps) == 1
+        assert restored.steps[0].stage == "gate"
+
+    def test_replay_context(self):
+        """Test creating a replay context."""
+        ctx = TraceContext(
+            channel="#test",
+            trigger_messages=["original"],
+            config_snapshot={},
+            is_replay=True,
+            original_trace_id="abc123",
+        )
+        assert ctx.is_replay is True
+        assert ctx.original_trace_id == "abc123"
