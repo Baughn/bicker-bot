@@ -8,7 +8,9 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
+from bicker_bot.config import MemoryConfig
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
+from bicker_bot.memory.deduplicator import MemoryDeduplicator
 from bicker_bot.memory.store import Memory, MemoryStore, MemoryType
 
 
@@ -72,6 +74,7 @@ class MemoryExtractor:
         api_key: str,
         memory_store: MemoryStore,
         model: str = "gemini-3-flash-preview",
+        dedup_config: MemoryConfig | None = None,
     ):
         """Initialize the memory extractor.
 
@@ -79,10 +82,23 @@ class MemoryExtractor:
             api_key: Google AI API key
             memory_store: Where to store extracted memories
             model: Model to use for extraction
+            dedup_config: Memory config with dedup settings (None disables dedup)
         """
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._memory_store = memory_store
+
+        # Initialize deduplicator if enabled
+        if dedup_config and dedup_config.dedup_enabled:
+            self._deduplicator = MemoryDeduplicator(
+                store=memory_store,
+                api_key=api_key,
+                model=model,
+                upper_threshold=dedup_config.dedup_upper_threshold,
+                lower_threshold=dedup_config.dedup_lower_threshold,
+            )
+        else:
+            self._deduplicator = None
 
     async def extract_and_store(
         self,
@@ -188,9 +204,21 @@ Return a JSON array of memory objects, or [] if nothing is worth remembering."""
                 # Shouldn't happen with structured output, but log if it does
                 logger.error(f"Failed to parse memory extraction response: {e}\nRaw: {raw}")
 
-            # Store memories
+            # Store memories (with deduplication if enabled)
             if memories:
-                self._memory_store.add_batch(memories)
+                if self._deduplicator:
+                    deduplicated = []
+                    for memory in memories:
+                        try:
+                            result = await self._deduplicator.check_and_merge(memory)
+                            deduplicated.append(result)
+                        except Exception as e:
+                            logger.warning(f"Dedup failed for memory, adding as-is: {e}")
+                            deduplicated.append(memory)
+                    self._memory_store.add_batch(deduplicated)
+                    memories = deduplicated
+                else:
+                    self._memory_store.add_batch(memories)
                 intensities = [f"{m.intensity:.1f}" for m in memories]
                 logger.info(
                     f"MEMORY_EXTRACT: {len(memories)} memories "

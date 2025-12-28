@@ -1,7 +1,7 @@
 """Tests for memory deduplication."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -91,7 +91,8 @@ class TestMemoryDeduplicator:
         # Mock find_similar to return high similarity
         with patch.object(memory_store, 'find_similar') as mock_find:
             from bicker_bot.memory.store import SearchResult
-            mock_find.return_value = SearchResult(memory=old_memory, distance=0.02)  # 0.98 similarity
+            # 0.98 similarity (distance 0.02)
+            mock_find.return_value = SearchResult(memory=old_memory, distance=0.02)
 
             new_memory = Memory(content="Alice likes cats a lot")
             result = await deduplicator.check_and_merge(new_memory)
@@ -108,7 +109,8 @@ class TestMemoryDeduplicator:
         # Mock find_similar to return gray zone similarity
         with patch.object(memory_store, 'find_similar') as mock_find:
             from bicker_bot.memory.store import SearchResult
-            mock_find.return_value = SearchResult(memory=old_memory, distance=0.08)  # 0.92 similarity
+            # 0.92 similarity (distance 0.08)
+            mock_find.return_value = SearchResult(memory=old_memory, distance=0.08)
 
             # Mock the LLM merge call
             with patch.object(deduplicator, '_merge_with_llm', new_callable=AsyncMock) as mock_llm:
@@ -145,7 +147,8 @@ class TestMemoryDeduplicator:
 
         with patch.object(memory_store, 'find_similar') as mock_find:
             from bicker_bot.memory.store import SearchResult
-            mock_find.return_value = SearchResult(memory=old_memory, distance=0.02)  # 0.98 similarity
+            # 0.98 similarity (distance 0.02)
+            mock_find.return_value = SearchResult(memory=old_memory, distance=0.02)
 
             with patch.object(memory_store, 'delete') as mock_delete:
                 new_memory = Memory(content="Alice likes cats a lot")
@@ -156,8 +159,6 @@ class TestMemoryDeduplicator:
     @pytest.mark.asyncio
     async def test_llm_merge_preserves_metadata(self, deduplicator, memory_store):
         """Test that merged memory preserves important metadata."""
-        from datetime import datetime
-
         old_memory = Memory(
             content="Alice has a cat",
             user="alice",
@@ -168,11 +169,11 @@ class TestMemoryDeduplicator:
 
         with patch.object(memory_store, 'find_similar') as mock_find:
             from bicker_bot.memory.store import SearchResult
-            mock_find.return_value = SearchResult(memory=old_memory, distance=0.08)  # 0.92 similarity
+            # 0.92 similarity (distance 0.08)
+            mock_find.return_value = SearchResult(memory=old_memory, distance=0.08)
 
-            with patch.object(deduplicator, '_merge_with_llm', new_callable=AsyncMock) as mock_llm:
-                mock_llm.return_value = "Alice has a tabby cat named Whiskers"
-
+            mock_llm = AsyncMock(return_value="Alice has a tabby cat named Whiskers")
+            with patch.object(deduplicator, '_merge_with_llm', mock_llm):
                 new_memory = Memory(
                     content="Alice's cat is named Whiskers",
                     user="alice",
@@ -262,5 +263,43 @@ class TestBatchDeduplication:
 
         report = await deduplicator.deduplicate_all(dry_run=True)
 
-        # Count should not change
+        # Count should not change in dry run mode
         assert memory_store.count() == initial_count
+        # Report should still be generated
+        assert report.memories_scanned >= 0
+
+
+class TestExtractorIntegration:
+    """Tests for extractor + deduplicator integration."""
+
+    @pytest.mark.asyncio
+    async def test_extractor_uses_deduplicator(self, tmp_path: Path):
+        """Test that extractor deduplicates before storing."""
+        from unittest.mock import MagicMock
+
+        config = MemoryConfig(
+            chroma_path=tmp_path / "chroma",
+            embedding_model="test-model",
+            dedup_enabled=True,
+        )
+
+        with patch(
+            "bicker_bot.memory.store.LocalEmbeddingFunction",
+            return_value=MockEmbeddingFunction(),
+        ):
+            store = MemoryStore(config)
+
+        with patch("bicker_bot.memory.extractor.MemoryDeduplicator") as MockDedup:
+            mock_dedup_instance = MagicMock()
+            mock_dedup_instance.check_and_merge = AsyncMock(side_effect=lambda m: m)
+            MockDedup.return_value = mock_dedup_instance
+
+            from bicker_bot.memory.extractor import MemoryExtractor
+
+            extractor = MemoryExtractor(
+                api_key="test-key",
+                memory_store=store,
+                dedup_config=config,
+            )
+
+            assert extractor._deduplicator is not None
