@@ -84,6 +84,27 @@ class TestMemoryConfig:
         with pytest.raises(ValidationError):
             MemoryConfig(high_intensity_threshold=1.5)
 
+    def test_dedup_defaults(self):
+        """Test dedup config has sensible defaults."""
+        config = MemoryConfig()
+        assert config.dedup_enabled is True
+        assert config.dedup_upper_threshold == 0.95
+        assert config.dedup_lower_threshold == 0.90
+
+    def test_dedup_validation(self):
+        """Test dedup thresholds are validated."""
+        # Valid config
+        config = MemoryConfig(dedup_upper_threshold=0.95, dedup_lower_threshold=0.90)
+        assert config.dedup_upper_threshold == 0.95
+
+        # Invalid: threshold > 1.0
+        with pytest.raises(ValidationError):
+            MemoryConfig(dedup_upper_threshold=1.5)
+
+        # Invalid: threshold < 0.0
+        with pytest.raises(ValidationError):
+            MemoryConfig(dedup_lower_threshold=-0.1)
+
 
 class TestConfig:
     """Tests for main configuration."""

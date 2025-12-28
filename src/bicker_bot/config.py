@@ -35,6 +35,11 @@ class MemoryConfig(BaseModel):
     embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"
     high_intensity_threshold: Annotated[float, Field(ge=0.0, le=1.0)] = 0.7
 
+    # Deduplication settings
+    dedup_enabled: bool = True
+    dedup_upper_threshold: Annotated[float, Field(ge=0.0, le=1.0)] = 0.95
+    dedup_lower_threshold: Annotated[float, Field(ge=0.0, le=1.0)] = 0.90
+
 
 class GateConfig(BaseModel):
     """Response gate probability configuration."""
