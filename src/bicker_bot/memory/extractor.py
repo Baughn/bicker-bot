@@ -42,7 +42,11 @@ Extract information that would be useful to remember about users, including:
 - Recurring topics or jokes
 
 For each memory, provide:
-- content: The fact to remember (concise, clear)
+- content: The fact to remember. Include relevant context such as:
+  - When it was mentioned (if notable)
+  - Why it matters or how it came up
+  - Related details that distinguish this from similar facts
+  Aim for 1-3 sentences rather than fragments.
 - user: The IRC nick this is about (if applicable)
 - type: One of "fact", "opinion", "interaction", "event"
 - intensity: How important is this?
@@ -55,6 +59,10 @@ For each memory, provide:
 Respond with a JSON array of memory objects. If there's nothing worth remembering, return an empty array [].
 
 Be selective - don't record every message, only genuinely memorable information.
+Prefer richer, more contextual memories over short fragments.
+
+Good: "Alice mentioned she adopted a rescue cat named Whiskers in 2023 after her previous cat passed away"
+Bad: "Alice has a cat"
 """
 
 
