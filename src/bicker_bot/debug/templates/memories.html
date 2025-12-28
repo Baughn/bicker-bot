@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Memories - Bicker-Bot Debug{% endblock %}
+
+{% block content %}
+<h1>Memory Browser</h1>
+
+<div class="filter-bar">
+    <input type="text"
+           id="memory-search"
+           name="query"
+           placeholder="Search memories..."
+           hx-get="/memories/search"
+           hx-trigger="keyup changed delay:300ms, search"
+           hx-target="#memory-results"
+           hx-include="[name='limit']"
+           autocomplete="off">
+    <select name="limit"
+            hx-get="/memories/search"
+            hx-trigger="change"
+            hx-target="#memory-results"
+            hx-include="#memory-search">
+        <option value="10">10 results</option>
+        <option value="20" selected>20 results</option>
+        <option value="50">50 results</option>
+        <option value="100">100 results</option>
+    </select>
+</div>
+
+<div id="memory-results">
+    <div class="empty-state">
+        <p>Enter a search query to browse memories.</p>
+        <p class="mt-1 text-muted">Memories are searched using semantic similarity.</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Handle delete confirmations
+    document.addEventListener('htmx:confirm', function(e) {
+        if (e.detail.elt.hasAttribute('hx-delete')) {
+            e.preventDefault();
+            if (confirm('Are you sure you want to delete this memory?')) {
+                e.detail.issueRequest();
+            }
+        }
+    });
+
+    // Re-trigger search after deletion to refresh results
+    document.body.addEventListener('htmx:afterRequest', function(e) {
+        if (e.detail.elt.hasAttribute('hx-delete') && e.detail.successful) {
+            const searchInput = document.getElementById('memory-search');
+            if (searchInput && searchInput.value) {
+                htmx.trigger(searchInput, 'search');
+            }
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,133 @@
+{% if results %}
+<table>
+    <thead>
+        <tr>
+            <th>Memory</th>
+            <th>User</th>
+            <th>Type</th>
+            <th>Intensity</th>
+            <th>Similarity</th>
+            <th>Created</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for result in results %}
+        <tr id="memory-{{ result.memory.id }}">
+            <td class="memory-content">
+                {{ result.memory.content[:100] }}{% if result.memory.content|length > 100 %}...{% endif %}
+            </td>
+            <td>
+                {% if result.memory.user %}
+                <span class="badge badge-user">{{ result.memory.user }}</span>
+                {% else %}
+                <span class="text-muted">global</span>
+                {% endif %}
+            </td>
+            <td>
+                <span class="badge badge-type-{{ result.memory.memory_type.value }}">
+                    {{ result.memory.memory_type.value }}
+                </span>
+            </td>
+            <td>
+                <span class="intensity-bar" style="--intensity: {{ (result.memory.intensity * 100)|int }}%;">
+                    {{ "%.2f"|format(result.memory.intensity) }}
+                </span>
+            </td>
+            <td>
+                <span class="similarity-score">{{ "%.3f"|format(result.similarity) }}</span>
+            </td>
+            <td class="text-secondary">
+                {{ result.memory.timestamp.strftime('%Y-%m-%d %H:%M') }}
+            </td>
+            <td>
+                <button class="btn btn-danger btn-sm"
+                        hx-delete="/memories/{{ result.memory.id }}"
+                        hx-target="#memory-{{ result.memory.id }}"
+                        hx-swap="outerHTML"
+                        title="Delete memory">
+                    Delete
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="text-secondary mt-1">Found {{ results|length }} result{% if results|length != 1 %}s{% endif %} for "{{ query }}"</p>
+{% elif query %}
+<div class="empty-state">
+    <p>No memories found for "{{ query }}".</p>
+    <p class="mt-1 text-muted">Try a different search term.</p>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>Enter a search query to browse memories.</p>
+    <p class="mt-1 text-muted">Memories are searched using semantic similarity.</p>
+</div>
+{% endif %}
+
+<style>
+    .memory-content {
+        max-width: 400px;
+        word-wrap: break-word;
+    }
+
+    .badge-user {
+        background-color: var(--info);
+        color: var(--bg-primary);
+    }
+
+    .badge-type-fact {
+        background-color: var(--success);
+        color: var(--bg-primary);
+    }
+
+    .badge-type-opinion {
+        background-color: #a855f7;
+        color: white;
+    }
+
+    .badge-type-interaction {
+        background-color: var(--warning);
+        color: var(--bg-primary);
+    }
+
+    .badge-type-event {
+        background-color: var(--info);
+        color: var(--bg-primary);
+    }
+
+    .intensity-bar {
+        display: inline-block;
+        position: relative;
+        padding: 0.25rem 0.5rem;
+        background: linear-gradient(
+            90deg,
+            var(--accent) 0%,
+            var(--accent) var(--intensity),
+            var(--bg-tertiary) var(--intensity),
+            var(--bg-tertiary) 100%
+        );
+        border-radius: 4px;
+        font-size: 0.75rem;
+    }
+
+    .similarity-score {
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+    }
+
+    .btn-danger {
+        background-color: #dc2626;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background-color: #ef4444;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+</style>

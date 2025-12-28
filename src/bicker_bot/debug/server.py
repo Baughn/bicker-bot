@@ -1,8 +1,10 @@
 """FastAPI debug server for browsing traces and debugging bot behavior."""
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,6 +13,9 @@ from fastapi.templating import Jinja2Templates
 
 from bicker_bot.debug.config_loader import ConfigLoader
 from bicker_bot.tracing import TraceStore
+
+if TYPE_CHECKING:
+    from bicker_bot.memory.store import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +26,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 def create_app(
     trace_store: TraceStore,
     config_dir: Path | None = None,
-    memory_store=None,
+    memory_store: MemoryStore | None = None,
     replay_fn: Callable | None = None,
 ) -> FastAPI:
     """Create the debug server FastAPI app.
@@ -85,5 +90,41 @@ def create_app(
             "trace_detail.html",
             {"trace": trace},
         )
+
+    @app.get("/memories", response_class=HTMLResponse)
+    async def memories_list(request: Request):
+        """Memory browser."""
+        if memory_store is None:
+            return HTMLResponse("Memory store not configured", status_code=503)
+        return templates.TemplateResponse(
+            request, "memories.html", {"collections": ["memories"]}
+        )
+
+    @app.get("/memories/search", response_class=HTMLResponse)
+    async def memories_search(
+        request: Request,
+        query: str = "",
+        limit: int = 20,
+    ):
+        """Search memories (htmx partial)."""
+        if memory_store is None:
+            return HTMLResponse("Memory store not configured")
+
+        if query:
+            results = memory_store.search(query=query, limit=limit)
+        else:
+            results = []
+
+        return templates.TemplateResponse(
+            request, "partials/memory_results.html", {"results": results, "query": query}
+        )
+
+    @app.delete("/memories/{memory_id}")
+    async def delete_memory(memory_id: str):
+        """Delete a memory."""
+        if memory_store is None:
+            return {"error": "Memory store not configured"}
+        success = memory_store.delete(memory_id)
+        return {"success": success}
 
     return app
