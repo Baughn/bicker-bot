@@ -203,6 +203,31 @@ class TestMemoryStore:
         result = memory_store.find_similar("Any query", threshold=0.5)
         assert result is None
 
+    def test_update_memory_content(self, memory_store: MemoryStore):
+        """Test updating a memory's content."""
+        memory = Memory(content="Original content", user="alice", intensity=0.8)
+        memory_store.add(memory)
+
+        memory_store.update(memory.id, new_content="Updated content")
+
+        # Verify the update
+        results = memory_store.search("Updated content")
+        assert len(results) > 0
+        assert "Updated" in results[0].memory.content
+
+    def test_update_preserves_metadata(self, memory_store: MemoryStore):
+        """Test that update preserves user and intensity."""
+        memory = Memory(content="Original", user="bob", intensity=0.9, memory_type=MemoryType.OPINION)
+        memory_store.add(memory)
+
+        memory_store.update(memory.id, new_content="New content")
+
+        # Get the memory back
+        memories = memory_store.get_user_memories("bob")
+        assert len(memories) == 1
+        assert memories[0].user == "bob"
+        assert memories[0].intensity == 0.9
+
 
 class TestBotSelector:
     """Tests for BotSelector."""

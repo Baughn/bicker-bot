@@ -316,6 +316,41 @@ class MemoryStore:
         )
         logger.warning("Cleared all memories")
 
+    def update(self, memory_id: str, new_content: str) -> bool:
+        """Update a memory's content while preserving metadata.
+
+        Args:
+            memory_id: ID of memory to update
+            new_content: New content text
+
+        Returns:
+            True if update succeeded, False if memory not found
+        """
+        # Get existing memory to preserve metadata
+        try:
+            existing = self._collection.get(
+                ids=[memory_id],
+                include=["metadatas"],
+            )
+        except Exception as e:
+            logger.error(f"Failed to get memory {memory_id} for update: {e}")
+            return False
+
+        if not existing["ids"]:
+            return False
+
+        metadata = existing["metadatas"][0] if existing["metadatas"] else {}
+
+        # Update the document
+        self._collection.update(
+            ids=[memory_id],
+            documents=[new_content],
+            metadatas=[metadata],
+        )
+
+        logger.info(f"MEMORY_UPDATE: id={memory_id[:8]}... content updated")
+        return True
+
     def find_similar(
         self,
         content: str,
