@@ -48,6 +48,7 @@ For each memory, provide:
   - Why it matters or how it came up
   - Related details that distinguish this from similar facts
   Aim for 1-3 sentences rather than fragments.
+  Do NOT prefix with "About [user]:" - user attribution is handled separately.
 - user: The IRC nick this is about (if applicable)
 - type: One of "fact", "opinion", "interaction", "event"
 - intensity: How important is this?

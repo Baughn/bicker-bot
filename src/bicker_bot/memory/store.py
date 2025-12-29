@@ -40,11 +40,9 @@ class Memory(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_chroma_document(self) -> str:
-        """Format memory for embedding."""
-        parts = [self.content]
-        if self.user:
-            parts.insert(0, f"About {self.user}:")
-        return " ".join(parts)
+        """Format memory for storage and embedding."""
+        # Just return raw content - user context is in metadata
+        return self.content
 
     def to_chroma_metadata(self) -> dict[str, Any]:
         """Convert to ChromaDB metadata format."""

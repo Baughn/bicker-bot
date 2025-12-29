@@ -1,16 +1,15 @@
 """Tests for memory store and bot selector."""
 
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from bicker_bot.config import MemoryConfig
-from bicker_bot.memory.store import Memory, MemoryStore, MemoryType, SearchResult
 from bicker_bot.memory.selector import BotIdentity, BotSelector, SelectionResult
+from bicker_bot.memory.store import Memory, MemoryStore, MemoryType, SearchResult
 
 
 class MockEmbeddingFunction:
@@ -58,11 +57,11 @@ class TestMemory:
         assert memory.id is not None
 
     def test_to_chroma_document(self):
-        """Test document formatting."""
+        """Test document formatting returns raw content."""
         memory = Memory(content="likes pizza", user="alice")
         doc = memory.to_chroma_document()
-        assert "alice" in doc
-        assert "pizza" in doc
+        # User info is in metadata, not document
+        assert doc == "likes pizza"
 
     def test_to_chroma_metadata(self):
         """Test metadata conversion."""
@@ -217,7 +216,9 @@ class TestMemoryStore:
 
     def test_update_preserves_metadata(self, memory_store: MemoryStore):
         """Test that update preserves user and intensity."""
-        memory = Memory(content="Original", user="bob", intensity=0.9, memory_type=MemoryType.OPINION)
+        memory = Memory(
+            content="Original", user="bob", intensity=0.9, memory_type=MemoryType.OPINION
+        )
         memory_store.add(memory)
 
         memory_store.update(memory.id, new_content="New content")
