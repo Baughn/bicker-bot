@@ -40,6 +40,10 @@ class MemoryConfig(BaseModel):
     dedup_upper_threshold: Annotated[float, Field(ge=0.0, le=1.0)] = 0.95
     dedup_lower_threshold: Annotated[float, Field(ge=0.0, le=1.0)] = 0.90
 
+    # Recency bias settings
+    recency_weight: Annotated[float, Field(ge=0.0, le=1.0)] = 0.2
+    recency_half_life_days: Annotated[float, Field(gt=0)] = 30.0
+
 
 class GateConfig(BaseModel):
     """Response gate probability configuration."""

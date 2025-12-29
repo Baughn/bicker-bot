@@ -61,6 +61,7 @@ class SearchResult:
 
     memory: Memory
     distance: float  # Lower is more similar
+    boosted_similarity: float | None = None  # Similarity after recency boost
 
     @property
     def similarity(self) -> float:
@@ -68,6 +69,11 @@ class SearchResult:
         # ChromaDB uses L2 distance by default
         # Convert to a rough similarity score
         return max(0.0, 1.0 - (self.distance / 2.0))
+
+    @property
+    def effective_similarity(self) -> float:
+        """Return boosted similarity if available, otherwise raw similarity."""
+        return self.boosted_similarity if self.boosted_similarity is not None else self.similarity
 
 
 class MemoryStore:
@@ -98,6 +104,16 @@ class MemoryStore:
 
         logger.info(f"Memory store initialized at {chroma_path}")
         logger.info(f"Collection '{self.COLLECTION_NAME}' has {self._collection.count()} memories")
+
+    def _compute_recency_factor(self, timestamp: datetime) -> float:
+        """Compute recency factor for a memory (0-1, higher = more recent).
+
+        Uses exponential decay with configurable half-life.
+        """
+        age_seconds = (datetime.now() - timestamp).total_seconds()
+        age_days = max(0, age_seconds / 86400)  # Clamp to non-negative
+        half_life = self._config.recency_half_life_days
+        return 0.5 ** (age_days / half_life)
 
     def add(self, memory: Memory) -> str:
         """Add a memory to the store.
@@ -211,6 +227,15 @@ class MemoryStore:
                 )
 
                 search_results.append(SearchResult(memory=memory, distance=distance))
+
+        # Apply recency boost if configured
+        recency_weight = self._config.recency_weight
+        if recency_weight > 0 and search_results:
+            for sr in search_results:
+                recency_factor = self._compute_recency_factor(sr.memory.timestamp)
+                sr.boosted_similarity = sr.similarity * (1 + recency_weight * recency_factor)
+            # Re-sort by boosted similarity (descending)
+            search_results.sort(key=lambda sr: sr.effective_similarity, reverse=True)
 
         # Log the search
         query_preview = query[:50] + "..." if len(query) > 50 else query

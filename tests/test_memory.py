@@ -281,6 +281,95 @@ class TestBotSelector:
         assert hachi_count >= 0 or merry_count >= 0  # Just ensure it runs
 
 
+class TestRecencyBias:
+    """Tests for memory recency bias."""
+
+    @pytest.fixture
+    def memory_store(self, tmp_path: Path) -> MemoryStore:
+        """Create a memory store with mock embeddings."""
+        config = MemoryConfig(
+            chroma_path=tmp_path / "chroma",
+            embedding_model="test-model",
+            recency_weight=0.2,
+            recency_half_life_days=30.0,
+        )
+
+        with patch(
+            "bicker_bot.memory.store.LocalEmbeddingFunction",
+            return_value=MockEmbeddingFunction(),
+        ):
+            store = MemoryStore(config)
+            yield store
+
+    def test_recency_factor_recent_memory(self, memory_store: MemoryStore):
+        """Test recency factor for a very recent memory."""
+        from datetime import datetime
+
+        factor = memory_store._compute_recency_factor(datetime.now())
+        # Brand new memory should have factor close to 1.0
+        assert factor > 0.99
+
+    def test_recency_factor_old_memory(self, memory_store: MemoryStore):
+        """Test recency factor for an old memory."""
+        from datetime import datetime, timedelta
+
+        old_time = datetime.now() - timedelta(days=30)
+        factor = memory_store._compute_recency_factor(old_time)
+        # 30 days old with 30-day half-life = factor of 0.5
+        assert 0.49 < factor < 0.51
+
+    def test_recency_factor_very_old_memory(self, memory_store: MemoryStore):
+        """Test recency factor for a very old memory."""
+        from datetime import datetime, timedelta
+
+        old_time = datetime.now() - timedelta(days=90)
+        factor = memory_store._compute_recency_factor(old_time)
+        # 90 days old = 3 half-lives = 0.125
+        assert 0.12 < factor < 0.13
+
+    def test_search_applies_recency_boost(self, memory_store: MemoryStore):
+        """Test that search results have boosted_similarity set."""
+        memory_store.add(Memory(content="Test memory"))
+
+        results = memory_store.search("test")
+
+        assert len(results) > 0
+        assert results[0].boosted_similarity is not None
+        # Boosted should be higher than raw similarity (recent memory gets boost)
+        assert results[0].boosted_similarity >= results[0].similarity
+
+    def test_search_orders_by_boosted_similarity(self, memory_store: MemoryStore):
+        """Test that results are ordered by effective_similarity."""
+        memory_store.add(Memory(content="Test memory 1"))
+        memory_store.add(Memory(content="Test memory 2"))
+
+        results = memory_store.search("test")
+
+        # Results should be sorted by effective_similarity descending
+        for i in range(len(results) - 1):
+            assert results[i].effective_similarity >= results[i + 1].effective_similarity
+
+    def test_recency_weight_zero_disables_boost(self, tmp_path: Path):
+        """Test that recency_weight=0 disables the boost."""
+        config = MemoryConfig(
+            chroma_path=tmp_path / "chroma",
+            embedding_model="test-model",
+            recency_weight=0.0,
+        )
+
+        with patch(
+            "bicker_bot.memory.store.LocalEmbeddingFunction",
+            return_value=MockEmbeddingFunction(),
+        ):
+            store = MemoryStore(config)
+            store.add(Memory(content="Test memory"))
+
+            results = store.search("test")
+
+            # With weight=0, boosted_similarity should remain None
+            assert results[0].boosted_similarity is None
+
+
 class TestMemoryProperties:
     """Property-based tests for memory system."""
 
