@@ -115,6 +115,24 @@ class BotClient(pydle.Client):
         key = f"{channel.lower()}#{user.lower()}"
         self._recent_joins[key] = time.monotonic()
 
+    async def on_part(self, channel: str, user: str, message: str | None = None) -> None:
+        """Track user parts to reset join state for mode filtering."""
+        key = f"{channel.lower()}#{user.lower()}"
+        self._recent_joins.pop(key, None)
+
+    async def on_kick(self, channel: str, target: str, by: str, reason: str | None = None) -> None:
+        """Remove kicked user from join tracking."""
+        key = f"{channel.lower()}#{target.lower()}"
+        self._recent_joins.pop(key, None)
+
+    async def on_quit(self, user: str, message: str | None = None) -> None:
+        """Remove user from all channel join tracking when they quit."""
+        user_lower = user.lower()
+        # Remove all entries for this user across all channels
+        keys_to_remove = [k for k in self._recent_joins if k.endswith(f"#{user_lower}")]
+        for key in keys_to_remove:
+            del self._recent_joins[key]
+
     async def on_message(self, target: str, source: str, message: str) -> None:
         """Handle incoming channel/private messages."""
         # Ignore our own messages
