@@ -287,12 +287,36 @@ class WebFetcher:
                             fetch_time_ms=(time.monotonic() - start_time) * 1000,
                         )
 
+                # Handle plain text and markdown files
+                is_plain_text = (
+                    content_type.startswith("text/plain")
+                    or content_type.startswith("text/markdown")
+                    or url.endswith(".txt")
+                    or url.endswith(".md")
+                )
+                if is_plain_text:
+                    text_content = await response.text()
+                    # Truncate if needed
+                    truncated = len(text_content) > self.MAX_CONTENT_CHARS
+                    if truncated:
+                        text_content = self._smart_truncate(
+                            text_content, self.MAX_CONTENT_CHARS
+                        )
+                    return WebPageResult(
+                        url=url,
+                        title=parsed.path.split("/")[-1] or url,
+                        markdown_content=text_content,
+                        images=[],
+                        fetch_time_ms=(time.monotonic() - start_time) * 1000,
+                        truncated=truncated,
+                    )
+
                 if "text/html" not in content_type and "application/xhtml" not in content_type:
                     return WebPageResult(
                         url=url,
                         title="",
                         markdown_content="",
-                        error=f"Not an HTML page: {content_type}",
+                        error=f"Unsupported content type: {content_type}",
                         fetch_time_ms=(time.monotonic() - start_time) * 1000,
                     )
 
