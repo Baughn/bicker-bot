@@ -100,6 +100,7 @@ class ResponseGenerator:
         message: str,
         sender: str,
         detected_urls: list[str] | None = None,
+        online_users: list[str] | None = None,
         trace_ctx: TraceContext | None = None,
     ) -> ResponseResult:
         """Generate a response as the specified bot.
@@ -112,6 +113,7 @@ class ResponseGenerator:
             message: The message to respond to
             sender: Who sent the message
             detected_urls: URLs found in the message (optional, for convenience)
+            online_users: Users currently in the channel (optional)
 
         Returns:
             ResponseResult with the generated content
@@ -128,12 +130,17 @@ to see what's on that page to respond helpfully, use the tool to fetch it."""
             if detected_urls:
                 web_note += f"\n\nURLs detected in message: {', '.join(detected_urls)}"
 
+        # Format online users if available
+        users_note = ""
+        if online_users:
+            users_note = f"\nUsers currently in channel: {', '.join(online_users)}\n"
+
         user_prompt = f"""Recent conversation:
 {recent_conversation}
 
 Context gathered:
 {context_str}
-
+{users_note}
 Latest message from {sender}: "{message}"
 {web_note}
 Respond naturally as your character. Keep it conversational and IRC-appropriate (not too long).

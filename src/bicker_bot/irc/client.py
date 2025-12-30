@@ -370,3 +370,18 @@ class IRCClient:
     def is_bot_message(self, sender: str) -> bool:
         """Check if a message was sent by one of our bots."""
         return sender in (self.merry_nick, self.hachiman_nick)
+
+    def get_channel_users(self, channel: str) -> list[str]:
+        """Get list of users currently in a channel.
+
+        Uses Merry's client since she's the message reader with full state.
+        """
+        if self._merry is None:
+            return []
+        try:
+            # pydle stores channel state in self.channels dict
+            if channel in self._merry.channels:
+                return list(self._merry.channels[channel]["users"])
+        except (KeyError, TypeError):
+            pass
+        return []

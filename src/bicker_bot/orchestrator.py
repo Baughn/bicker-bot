@@ -448,6 +448,7 @@ class Orchestrator:
             )
 
         # Generate response
+        online_users = self._irc.get_channel_users(message.channel) if self._irc else []
         with log_timing(logger, "Response generation (direct)"):
             response_result = await self._responder.generate(
                 bot=forced_bot,
@@ -457,6 +458,7 @@ class Orchestrator:
                 message=combined_content,
                 sender=message.sender,
                 detected_urls=detected_urls,
+                online_users=online_users,
                 trace_ctx=ctx,
             )
 
@@ -590,6 +592,7 @@ class Orchestrator:
             )
 
         # Step 5: Generate response
+        online_users = self._irc.get_channel_users(message.channel) if self._irc else []
         with log_timing(logger, "Response generation"):
             response_result = await self._responder.generate(
                 bot=selected_bot,
@@ -599,6 +602,7 @@ class Orchestrator:
                 message=message.content,
                 sender=message.sender,
                 detected_urls=detected_urls,
+                online_users=online_users,
                 trace_ctx=ctx,
             )
 
@@ -761,6 +765,7 @@ class Orchestrator:
             message=trigger_text,
             sender="replay",
             detected_urls=detected_urls,
+            online_users=[],  # No channel context in replay
             trace_ctx=replay_ctx,
         )
 
