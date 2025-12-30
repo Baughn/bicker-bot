@@ -10,10 +10,10 @@ from pathlib import Path
 import uvicorn
 
 from bicker_bot.config import Config, get_bot_nicks
-from bicker_bot.debug.server import create_app
 from bicker_bot.core import (
     BickerChecker,
     ContextBuilder,
+    ConversationStore,
     EngagementChecker,
     MessageRouter,
     ResponseGate,
@@ -21,6 +21,7 @@ from bicker_bot.core import (
     WebFetcher,
 )
 from bicker_bot.core.logging import get_session_stats, log_timing
+from bicker_bot.debug.server import create_app
 from bicker_bot.irc.client import IRCClient, Message, MessageType
 from bicker_bot.memory import BotIdentity, BotSelector, MemoryExtractor, MemoryStore
 from bicker_bot.personalities import get_personality_prompt
@@ -94,7 +95,8 @@ class Orchestrator:
             raise ValueError("Both ANTHROPIC_API_KEY and GOOGLE_API_KEY must be set")
 
         # Initialize components
-        self._router = MessageRouter(buffer_size=30)
+        self._conversation_store = ConversationStore(Path("data/conversations.db"))
+        self._router = MessageRouter(buffer_size=30, store=self._conversation_store)
         self._gate = ResponseGate(config.gate, self._bot_nicks)
 
         self._memory_store = MemoryStore(config.memory)

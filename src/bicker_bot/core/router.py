@@ -1,5 +1,7 @@
 """Message routing and buffering."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from collections import deque
@@ -8,6 +10,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from bicker_bot.core.conversation_store import ConversationStore
     from bicker_bot.irc.client import Message
 
 from bicker_bot.irc.client import MessageType
@@ -102,22 +105,56 @@ class ChannelBuffer:
 class MessageRouter:
     """Routes messages and maintains per-channel buffers."""
 
-    def __init__(self, buffer_size: int = 30):
+    def __init__(
+        self,
+        buffer_size: int = 30,
+        store: "ConversationStore | None" = None,
+    ):
         self._buffer_size = buffer_size
         self._buffers: dict[str, ChannelBuffer] = {}
         self._lock = asyncio.Lock()
+        self._store = store
+        self._loaded_channels: set[str] = set()
 
     async def _get_buffer(self, channel: str) -> ChannelBuffer:
-        """Get or create buffer for a channel."""
+        """Get or create buffer for a channel, loading from DB if needed."""
         async with self._lock:
             if channel not in self._buffers:
                 self._buffers[channel] = ChannelBuffer(max_size=self._buffer_size)
+
+            # Lazy-load from database on first access
+            if self._store and channel not in self._loaded_channels:
+                self._loaded_channels.add(channel)
+                messages = self._store.load_recent(channel, limit=self._buffer_size)
+                if messages:
+                    buffer = self._buffers[channel]
+                    # Populate buffer with loaded messages (already oldest-first)
+                    async with buffer._lock:
+                        for ts_msg in messages:
+                            buffer._messages.append(ts_msg)
+                    logger.info(
+                        f"Loaded {len(messages)} messages for {channel} from database"
+                    )
+
             return self._buffers[channel]
 
     async def add_message(self, message: "Message") -> None:
         """Add a message to the appropriate channel buffer."""
         buffer = await self._get_buffer(message.channel)
         await buffer.add(message)
+
+        # Persist to database
+        if self._store:
+            ts_msg = buffer._messages[-1] if buffer._messages else None
+            if ts_msg:
+                self._store.save_message(
+                    channel=message.channel,
+                    sender=message.sender,
+                    content=message.content,
+                    message_type=message.type,
+                    timestamp=ts_msg.timestamp,
+                )
+
         logger.debug(f"Added message to {message.channel} buffer (size: {len(buffer)})")
 
     async def get_recent_messages(

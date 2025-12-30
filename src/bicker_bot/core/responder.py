@@ -271,6 +271,10 @@ Do not include backticks. Do not nest the JSON.
                 response = await self._anthropic.messages.create(
                     model=self._opus_model,
                     max_tokens=8192,
+                    thinking={
+                        "type": "enabled",
+                        "budget_tokens": 4096,
+                    },
                     system=system_prompt,
                     tools=current_tools,
                     messages=messages,

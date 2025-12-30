@@ -2,6 +2,7 @@
 
 from .bicker import BickerChecker, BickerResult
 from .context import ContextBuilder, ContextResult
+from .conversation_store import ConversationStore
 from .engagement import EngagementChecker, EngagementResult
 from .gate import GateFactors, GateResult, ResponseGate
 from .responder import ResponseGenerator, ResponseResult
@@ -14,6 +15,7 @@ __all__ = [
     "ChannelBuffer",
     "ContextBuilder",
     "ContextResult",
+    "ConversationStore",
     "EngagementChecker",
     "EngagementResult",
     "GateFactors",
