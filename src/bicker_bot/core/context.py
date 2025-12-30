@@ -20,8 +20,14 @@ logger = logging.getLogger(__name__)
 
 # Bot descriptions for context gathering
 BOT_DESCRIPTIONS = {
-    BotIdentity.MERRY: "a direct, action-oriented dream demon who dislikes overthinking and prefers to tackle problems head-on",
-    BotIdentity.HACHIMAN: "a cynical observer who analyzes everything, uses self-deprecating humor, and secretly cares despite his pessimism",
+    BotIdentity.MERRY: (
+        "a direct, action-oriented dream demon who dislikes overthinking "
+        "and prefers to tackle problems head-on"
+    ),
+    BotIdentity.HACHIMAN: (
+        "a cynical observer who analyzes everything, uses self-deprecating humor, "
+        "and secretly cares despite his pessimism"
+    ),
 }
 
 
@@ -69,7 +75,10 @@ When calling ready_to_respond, provide a JSON summary with:
 # Tool definitions for Gemini
 RAG_SEARCH_DECLARATION = types.FunctionDeclaration(
     name="rag_search",
-    description="Search the memory database for relevant past information about users, topics, or events",
+    description=(
+        "Search the memory database for relevant past information "
+        "about users, topics, or events"
+    ),
     parameters=types.Schema(
         type=types.Type.OBJECT,
         properties={
@@ -264,7 +273,8 @@ class ContextBuilder:
 
 Latest message from {sender}: "{message}"
 {hi_memories_str}{urls_str}
-Analyze this and gather any additional context needed. Use rag_search if you need more information, or call ready_to_respond if you have enough."""
+Analyze this and gather any additional context needed. Use rag_search if you need more
+information, or call ready_to_respond if you have enough."""
 
         # Choose tool set based on web fetcher availability
         has_web_fetcher = self._web_fetcher is not None
@@ -323,7 +333,11 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
             log_llm_response(
                 operation=f"Context Build (round {result.rounds})",
                 response_text=response_text,
-                tool_calls=[{"name": tc.name, "args": dict(tc.args)} for tc in tool_calls] if tool_calls else None,
+                tool_calls=(
+                    [{"name": tc.name, "args": dict(tc.args)} for tc in tool_calls]
+                    if tool_calls
+                    else None
+                ),
             )
 
             # Log round summary (always on)
@@ -378,7 +392,10 @@ Analyze this and gather any additional context needed. Use rag_search if you nee
                                 "rounds": result.rounds,
                                 "memories_found": len(result.memories_found),
                             },
-                            decision=f"{result.rounds} rounds, {len(result.memories_found)} memories",
+                            decision=(
+                                f"{result.rounds} rounds, "
+                                f"{len(result.memories_found)} memories"
+                            ),
                             model=self._model,
                             prompt=initial_prompt,
                             raw_response=str(result.summary),

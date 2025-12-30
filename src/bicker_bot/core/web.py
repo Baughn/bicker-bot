@@ -96,7 +96,11 @@ class ImageExtractingConverter(markdownify.MarkdownConverter):
 
                 # Check for junk classes/ids
                 combined = f"{parent_class} {parent_id}".lower()
-                if any(x in combined for x in ("logo", "banner", "nav", "header", "footer", "icon", "avatar", "badge")):
+                junk_patterns = (
+                    "logo", "banner", "nav", "header", "footer",
+                    "icon", "avatar", "badge",
+                )
+                if any(x in combined for x in junk_patterns):
                     ref["in_header"] = True
 
                 parent = parent.parent
@@ -197,7 +201,11 @@ class WebFetcher:
             score += 5
 
         # Path suggests content (common patterns for blog/article images)
-        if any(x in src_lower for x in ("/post/", "/article/", "/content/", "/assets/", "/images/", "/figures/")):
+        content_paths = (
+            "/post/", "/article/", "/content/",
+            "/assets/", "/images/", "/figures/",
+        )
+        if any(x in src_lower for x in content_paths):
             score += 10
 
         return score
@@ -511,8 +519,7 @@ class WebFetcher:
         """
         try:
             # Format: data:image/png;base64,<data>
-            header, b64_data = data_uri.split(",", 1)
-            mime_type = header.split(":")[1].split(";")[0]
+            _header, b64_data = data_uri.split(",", 1)
 
             # Decode and process
             raw_data = base64.b64decode(b64_data)

@@ -144,7 +144,8 @@ def log_rag_results(
     ]
 
     for i, result in enumerate(results):
-        distance_str = f" (distance: {distances[i]:.4f})" if distances and i < len(distances) else ""
+        has_dist = distances and i < len(distances)
+        distance_str = f" (distance: {distances[i]:.4f})" if has_dist else ""
         if hasattr(result, "content"):
             parts.append(f"\n[{i+1}]{distance_str}\n{result.content}")
         elif isinstance(result, dict):

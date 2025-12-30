@@ -344,7 +344,9 @@ class Orchestrator:
                 representative, combined_content, bot
             )
             if result.responded and result.messages:
-                await self._send_responses(channel, bot, result.messages, representative, result.truncated)
+                await self._send_responses(
+                    channel, bot, result.messages, representative, result.truncated
+                )
 
     async def _send_responses(
         self,
@@ -373,10 +375,15 @@ class Orchestrator:
             # Check for /me prefix to send as action
             if msg.startswith("/me "):
                 action_content = msg[4:]  # Strip "/me "
-                await self._irc.send(bot_name, channel, action_content, msg_type=MessageType.ACTION)
+                await self._irc.send(
+                    bot_name, channel, action_content, msg_type=MessageType.ACTION
+                )
                 # Add bot's message to router so it appears in context
                 bot_msg = Message(
-                    channel=channel, sender=bot_nick, content=action_content, type=MessageType.ACTION
+                    channel=channel,
+                    sender=bot_nick,
+                    content=action_content,
+                    type=MessageType.ACTION,
                 )
             else:
                 await self._irc.send(bot_name, channel, msg)
@@ -544,7 +551,10 @@ class Orchestrator:
                     responded=False,
                     gate_passed=False,
                     engagement_passed=False,
-                    reason=f"Engagement roll failed: P={engagement_result.probability:.2f} roll={roll:.2f}",
+                    reason=(
+                        f"Engagement roll failed: "
+                        f"P={engagement_result.probability:.2f} roll={roll:.2f}"
+                    ),
                 )
             logger.info(
                 f"ENGAGE: P={engagement_result.probability:.3f} "
@@ -682,8 +692,8 @@ class Orchestrator:
             original_trace_id=original.id,
         )
 
-        # Build a mock message for the pipeline
-        message = Message(
+        # Build a mock message for the pipeline (kept for potential future use)
+        _message = Message(
             channel=original.channel,
             sender="replay",  # placeholder sender
             content=trigger_text,
@@ -706,7 +716,7 @@ class Orchestrator:
         # Step 2: Engagement check (if gate didn't pass)
         if not gate_result.should_respond:
             # Use empty context for replay engagement check
-            engagement_result = await self._engagement.check(
+            _engagement_result = await self._engagement.check(
                 message=trigger_text,
                 recent_context="",  # No context available in replay
                 mentioned=gate_result.factors.mentioned,

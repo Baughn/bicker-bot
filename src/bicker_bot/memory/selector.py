@@ -208,7 +208,11 @@ class BotSelector:
             log_rag_results(
                 operation="Bot Selection",
                 results=[
-                    {"id": doc_id, "bot": results["metadatas"][0][i]["bot"], "type": results["metadatas"][0][i].get("type", "base")}
+                    {
+                        "id": doc_id,
+                        "bot": results["metadatas"][0][i]["bot"],
+                        "type": results["metadatas"][0][i].get("type", "base"),
+                    }
                     for i, doc_id in enumerate(results["ids"][0])
                 ],
                 distances=results["distances"][0] if results["distances"] else None,

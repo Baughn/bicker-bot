@@ -83,7 +83,8 @@ class TraceStore:
         self._conn.execute(
             """
             INSERT OR REPLACE INTO traces
-            (id, created_at, channel, bot, trigger_text, outcome, is_replay, original_trace_id, trace_json)
+            (id, created_at, channel, bot, trigger_text, outcome,
+             is_replay, original_trace_id, trace_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (

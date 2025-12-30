@@ -10,10 +10,9 @@ from typing import Any
 import anthropic
 
 from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_response, log_llm_round
-from bicker_bot.core.web import ImageData, WebFetcher, WebPageResult
+from bicker_bot.core.web import WebFetcher, WebPageResult
 from bicker_bot.memory.selector import BotIdentity
 from bicker_bot.tracing import TraceContext
-
 
 logger = logging.getLogger(__name__)
 
@@ -265,9 +264,17 @@ Do not include backticks. Do not nest the JSON.
             for round_num in range(self.MAX_TOOL_ROUNDS + 1):
                 # On final round, omit tools to force a text response
                 is_final_round = round_num >= self.MAX_TOOL_ROUNDS
-                current_tools = anthropic.NOT_GIVEN if is_final_round else (tools if tools else anthropic.NOT_GIVEN)
+                current_tools = (
+                    anthropic.NOT_GIVEN
+                    if is_final_round
+                    else (tools if tools else anthropic.NOT_GIVEN)
+                )
 
-                logger.debug(f"CLAUDE_ROUND {round_num}: sending {len(messages)} messages, tools={'omitted' if is_final_round else 'included'}")
+                tools_status = "omitted" if is_final_round else "included"
+                logger.debug(
+                    f"CLAUDE_ROUND {round_num}: sending {len(messages)} messages, "
+                    f"tools={tools_status}"
+                )
                 response = await self._anthropic.messages.create(
                     model=self._opus_model,
                     max_tokens=8192,
@@ -303,11 +310,11 @@ Do not include backticks. Do not nest the JSON.
                         f"Aborting response (will not be sent or stored in memory)."
                     )
                     if self._on_error_notify:
-                        asyncio.create_task(
-                            self._on_error_notify(
-                                f"Baughn: Claude {self._opus_model} hit max_tokens! Response aborted."
-                            )
+                        msg = (
+                            f"Baughn: Claude {self._opus_model} hit max_tokens! "
+                            "Response aborted."
                         )
+                        asyncio.create_task(self._on_error_notify(msg))
                     # Add trace step for truncated response
                     if trace_ctx is not None:
                         trace_ctx.add_llm_step(

@@ -12,9 +12,11 @@ from bicker_bot.core.logging import get_session_stats, log_llm_call, log_llm_res
 logger = logging.getLogger(__name__)
 
 
-BICKER_SYSTEM_PROMPT = """You evaluate whether a chatbot's message warrants a response from its sibling bot.
+BICKER_SYSTEM_PROMPT = """\
+You evaluate whether a chatbot's message warrants a response from its sibling bot.
 
-The bots are Merry (energetic, action-oriented dream demon) and Hachiman (cynical, analytical loner). They bicker like siblings.
+The bots are Merry (energetic, action-oriented dream demon) and Hachiman
+(cynical, analytical loner). They bicker like siblings.
 
 Consider:
 1. Is the message teasing, insulting, or challenging the other bot?

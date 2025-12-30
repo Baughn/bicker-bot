@@ -228,7 +228,10 @@ class ResponseGate:
                     "roll": roll,
                     "should_respond": result.should_respond,
                 },
-                decision=f"{'PASS' if result.should_respond else 'FAIL'}: P={probability:.3f} roll={roll:.3f}",
+                decision=(
+                    f"{'PASS' if result.should_respond else 'FAIL'}: "
+                    f"P={probability:.3f} roll={roll:.3f}"
+                ),
                 details={
                     "factors": {
                         "mentioned": factors.mentioned,
